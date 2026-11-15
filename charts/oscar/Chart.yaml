@@ -1,0 +1,12 @@
+apiVersion: v2
+name: oscar
+description: Persistent singleton OSCAR desktop over Selkies
+type: application
+version: 0.1.0
+appVersion: "2.1.1"
+home: https://github.com/frisbeecz/docker-oscar
+sources:
+  - https://github.com/frisbeecz/docker-oscar
+  - https://gitlab.com/CrimsonNape/OSCAR-SQL
+annotations:
+  licenses: Apache-2.0

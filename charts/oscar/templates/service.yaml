@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "oscar.fullname" . }}
+  labels:
+    {{- include "oscar.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "oscar.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP

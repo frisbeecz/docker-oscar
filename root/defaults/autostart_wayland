@@ -1,0 +1,2 @@
+# Keep this shell alive while OSCAR runs: the base watchdog monitors it.
+/usr/local/bin/oscar-start

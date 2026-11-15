@@ -1,0 +1,10 @@
+OSCAR stores configuration, application data and SD inputs on separate PVCs.
+Back up all three: /config alone does NOT include the nested data/SD mounts.
+Managed generation-v2 PVCs are retained (orphaned) on uninstall.
+Reuse them through explicit persistence.<role>.existingClaim values; never
+remove or rewrite another release's ownership metadata to force adoption.
+
+The service uses HTTP port 3000. Both public routes are disabled by default.
+For remote access provide HTTPS, authentication, WebSocket upgrade support
+and suitable long-lived connection timeouts on your existing proxy/controller.
+See docs/chart.md for backup, routing and safe reinstallation examples.

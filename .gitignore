@@ -1,0 +1,16 @@
+.superpowers/
+.venv/
+artifacts/
+graphify-out/
+WORKLOG.md
+**/WORKLOG.md
+scratch/
+.env
+.env.*
+*.pem
+*.key
+*credentials*
+*kubeconfig*
+__pycache__/
+.pytest_cache/
+.DS_Store

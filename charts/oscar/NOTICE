@@ -1,0 +1,6 @@
+OSCAR Helm chart
+Copyright (C) 2026 docker-oscar contributors
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+This license covers the independently written deployment chart only.
+OSCAR and the container's other components retain their own licenses.

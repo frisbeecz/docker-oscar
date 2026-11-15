@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+nameOverride: ""
+fullnameOverride: ""
+replicaCount: 1
+image:
+  repository: ghcr.io/frisbeecz/docker-oscar
+  tag: "2.1.1-r1"
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+serviceAccount:
+  create: true
+  name: ""
+env:
+  PUID: "1000"
+  PGID: "1000"
+  TZ: Etc/UTC
+  PIXELFLUX_WAYLAND: "true"
+  RESTART_APP: "true"
+  HARDEN_DESKTOP: "true"
+envFrom: []
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+nodeSelector: {}
+tolerations: []
+affinity: {}
+startupProbe:
+  tcpSocket:
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 60
+readinessProbe:
+  tcpSocket:
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+livenessProbe:
+  tcpSocket:
+    port: http
+  periodSeconds: 30
+  timeoutSeconds: 3
+  failureThreshold: 3
+persistence:
+  config:
+    size: 1Gi
+    accessModes: [ReadWriteOnce]
+    storageClass: null
+    existingClaim: ""
+  data:
+    size: 5Gi
+    accessModes: [ReadWriteOnce]
+    storageClass: null
+    existingClaim: ""
+  sdcard:
+    size: 2Gi
+    accessModes: [ReadWriteOnce]
+    storageClass: null
+    existingClaim: ""
+    readOnly: true
+extraPvcMounts: []
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+gateway:
+  enabled: false
+  parentRefs: []
+  hostnames: []
+  path: /

@@ -1,0 +1,23 @@
+{{- range $role := list "config" "data" "sdcard" }}
+{{- $settings := index $.Values.persistence $role }}
+{{- if not $settings.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "oscar.claimName" (dict "root" $ "role" $role) }}
+  labels:
+    {{- include "oscar.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml $settings.accessModes | nindent 4 }}
+  {{- if kindIs "string" $settings.storageClass }}
+  storageClassName: {{ $settings.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $settings.size | quote }}
+{{- end }}
+{{- end }}

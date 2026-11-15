@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "imageVersion": "2.1.1-r1",
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "oscar": {
+    "version": "2.1.1",
+    "commit": "4f14624616d62c6986788417bc5c519c807a7ade",
+    "url": "https://gitlab.com/CrimsonNape/OSCAR-SQL/-/archive/4f14624616d62c6986788417bc5c519c807a7ade/OSCAR-SQL-4f14624616d62c6986788417bc5c519c807a7ade.tar.gz",
+    "sha256": "063b4b6e797d40f8d060453f865fb0e5f48c71cbb72adee0387e76e844313dad",
+    "patches": [],
+    "binarySourceCorrespondence": "version-aligned; not independently proven",
+    "binaries": {
+      "amd64": {
+        "url": "https://www.sleepfiles.com/OSCAR/2.1.1/oscar20_2.1.1-Debian13_amd64-Qt6.deb",
+        "sha256": "a9256776774e9ae1313feb5ed0aa5fe38eb808168c3e2d5ea0e3e3ce4ce289dc",
+        "package": "oscar20",
+        "version": "2.1.1-Debian13",
+        "architecture": "amd64"
+      },
+      "arm64": {
+        "url": "https://www.sleepfiles.com/OSCAR/2.1.1/oscar20_2.1.1-Debian13_arm64-Qt6.deb",
+        "sha256": "6973e4f8d81f170a6d59ea1205c954e231c8158f10c433cec3bc23e903f9bece",
+        "package": "oscar20",
+        "version": "2.1.1-Debian13",
+        "architecture": "arm64"
+      }
+    }
+  },
+  "base": {
+    "repository": "lscr.io/linuxserver/baseimage-selkies",
+    "tag": "debiantrixie",
+    "digest": "sha256:d03d09e9ceb770032db5892dd7caa9b207ef09b55a9b79491a1c4d37842e6c01",
+    "sourceCommit": "e45b4fe636ee99860a40eb552d0e4b21aefad842",
+    "manifests": {
+      "amd64": "sha256:0af93768720ccb685322aff1fecf0598ecce8a56405bed44839e43e8a5ffdba0",
+      "arm64": "sha256:cb0d9b32d7e46dd08be7a72e84ab0f0a1b041ddf21de1f42e624359e640a86be"
+    }
+  },
+  "qt": {
+    "major": 6,
+    "distribution": "Debian 13 (trixie)",
+    "selection": "distribution packages; exact installed versions in /usr/share/oscar/runtime-packages.txt"
+  }
+}

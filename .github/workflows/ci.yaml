@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  DOCKER_CONFIG: ${{ github.workspace }}/.venv/docker
+
+jobs:
+  static:
+    name: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Project-local locked tools
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-ci.lock
+          .venv/bin/python -m ci.check --install-tools
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/.venv/tools/bin" >> "$GITHUB_PATH"
+      - name: Lint and all local contracts
+        run: python3 -m ci.check --static-only --out-dir artifacts/static
+      - name: Exact corresponding sources
+        run: python3 -m ci.check --sources --out-dir artifacts/sources
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: static-sources
+          path: |
+            artifacts/static/
+            artifacts/sources/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Failed static diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-static
+          path: artifacts/static/
+          if-no-files-found: error
+          retention-days: 7
+
+  helm:
+    name: helm-${{ matrix.helm }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        helm: ["3.19.0", "4.3.2"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Project-local locked tools
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-ci.lock
+          .venv/bin/python -m ci.check --install-tools
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/.venv/tools/bin" >> "$GITHUB_PATH"
+      - name: Actual Helm matrix and immutable package
+        env:
+          HELM_VERSION: ${{ matrix.helm }}
+        run: python3 -m ci.check --chart "$HELM_VERSION" --out-dir "artifacts/chart/helm-$HELM_VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: helm-${{ matrix.helm }}
+          path: artifacts/chart/
+          if-no-files-found: error
+          retention-days: 14
+
+  native:
+    name: native-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Verify native disposable host before bootstrap
+        run: |
+          python3 -c 'import os; from ci.build_image import require_native, require_disposable_runner; require_native(os.environ["ARCH"]); require_disposable_runner()'
+          echo "OSCAR_RUN_ID=r${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >> "$GITHUB_ENV"
+      - name: Project-local locked tools
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-ci.lock
+          .venv/bin/python -m ci.check --install-tools
+          .venv/bin/python -m ci.check --native-tools
+          {
+            echo "$GITHUB_WORKSPACE/.venv/bin"
+            echo "$GITHUB_WORKSPACE/.venv/tools/bin"
+          } >> "$GITHUB_PATH"
+      - name: Exact native source receipt
+        run: python3 -m ci.check --sources --out-dir "artifacts/native/$ARCH/sources"
+      - name: Native build and verified local import
+        run: python3 -m ci.build_image --arch "$ARCH" --out-dir "artifacts/native/$ARCH"
+      - name: Native startup smoke (container, HTTP, same OSCAR process for 10s)
+        run: |
+          python3 -m ci.runtime --image "oscar-under-test:$ARCH" --arch "$ARCH" \
+            --run-id "$OSCAR_RUN_ID" --artifacts "artifacts/native/$ARCH"
+      - name: Upload only after startup smoke and owned cleanup
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-${{ matrix.arch }}
+          path: artifacts/native/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Synthetic failure JSON and container logs only, never credentials
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-native-${{ matrix.arch }}
+          path: |
+            artifacts/native/**/*.json
+            artifacts/native/**/*.log
+          if-no-files-found: error
+          retention-days: 7
+
+  evidence:
+    name: evidence
+    needs: [static, helm, native]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Locked dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-ci.lock
+      - name: This run and exact attempt server-side job results
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .venv/bin/python -m ci.release evidence --out-dir artifacts/evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence
+          path: artifacts/evidence/
+          if-no-files-found: error
+          retention-days: 14

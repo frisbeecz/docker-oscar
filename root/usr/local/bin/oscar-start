@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Do not copy/import/convert legacy profiles here.
+export HOME=/config
+export XDG_CONFIG_HOME=/config/.config
+export XDG_DATA_HOME=/config/.local/share
+export XDG_CACHE_HOME=/config/.cache
+exec OSCAR20 --legacy --datadir /config/Documents/OSCAR20_Data
