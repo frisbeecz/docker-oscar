@@ -2,7 +2,7 @@ FROM lscr.io/linuxserver/baseimage-selkies:debiantrixie@sha256:d03d09e9ceb770032
 ARG TARGETARCH
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.title="OSCAR with Selkies" \
-    org.opencontainers.image.version="2.1.1-r2" \
+    org.opencontainers.image.version="2.1.1-r3" \
     org.opencontainers.image.revision="${VCS_REF}" \
     org.opencontainers.image.licenses="Apache-2.0" \
     org.opencontainers.image.source="https://github.com/frisbeecz/docker-oscar"

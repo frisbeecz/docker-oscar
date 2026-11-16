@@ -2,7 +2,7 @@
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Chart `0.1.1` runs OSCAR `2.1.1` using Selkies, not VNC. It has no chart
+Chart `0.1.2` runs OSCAR `2.1.1` using Selkies, not VNC. It has no chart
 dependencies, controllers, CRDs, RBAC or migration hooks. This is a new
 installation chart, **not an upgrade path for an old OSCAR release**.
 
@@ -31,7 +31,7 @@ The chart is not an identity provider and has no default password.
 | --- | --- |
 | `nameOverride`, `fullnameOverride` | Empty; DNS labels, at most 63 characters |
 | `replicaCount` | Exactly `1`; no concurrent writers/rolling update |
-| `image.repository`, `tag` | `ghcr.io/frisbeecz/docker-oscar`, `2.1.1-r2` |
+| `image.repository`, `tag` | `ghcr.io/frisbeecz/docker-oscar`, `2.1.1-r3` |
 | `image.digest` | Empty or `sha256:<64 hex>`; takes precedence over tag |
 | `image.pullPolicy`, `imagePullSecrets` | `IfNotPresent`, `[]` (existing Secret names) |
 | `serviceAccount.create`, `name` | `true`, empty (generated); `false` + empty selects `default` |
