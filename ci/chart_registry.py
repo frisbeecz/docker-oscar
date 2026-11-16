@@ -105,8 +105,10 @@ def publish_chart(path, *, sha256, version, username, token):
                                  data=b"", statuses=(202,))
         location = urljoin(BASE, headers.get("Location", ""))
         parsed = urlsplit(location)
+        # GHCR returns /blobs/upload/<id> (singular) after POST /blobs/uploads/.
+        # Use that Location unchanged; permit neither another origin nor repo.
         _require(parsed.scheme == "https" and parsed.netloc == "ghcr.io"
-                 and re.fullmatch(re.escape(PREFIX) + r"/blobs/uploads/[A-Za-z0-9_-]+", parsed.path)
+                 and re.fullmatch(re.escape(PREFIX) + r"/blobs/uploads?/[A-Za-z0-9_-]+", parsed.path)
                  and not parsed.fragment and "digest" not in parse_qs(parsed.query),
                  "unsafe registry upload location")
         separator = "&" if parsed.query else "?"

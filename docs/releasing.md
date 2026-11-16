@@ -133,7 +133,10 @@ permission to change package visibility, tokens, runner billing or auth scopes.
 The chart publisher uses the same job-scoped token in memory, with only the
 approved `frisbeecz/charts/oscar` GHCR scope. It does not save another registry
 credential file, follow authenticated redirects or retry failures. GHCR blob
-downloads may follow one HTTPS redirect to its approved
+upload Locations may use `/blobs/upload/<id>` (singular) or
+`/blobs/uploads/<id>`; both must remain on HTTPS `ghcr.io` within that exact
+repository. Use the returned URL/query unchanged and append only the digest.
+GHCR blob downloads may follow one HTTPS redirect to its approved
 `pkg-containers.githubusercontent.com/ghcr1/blobs/` CDN, **without Authorization**;
 the downloaded content must still match its expected size and SHA256. Other
 redirects fail closed. Protocol regression tests cover a registry where

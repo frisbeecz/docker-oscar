@@ -113,3 +113,28 @@ done
 - Integration is explicitly approved: stage only this unit's 12 named paths,
   commit and fast-forward push main, then create/push only new `v0.1.1`.
   No old release/tag/registry modification or automatic recovery is authorized.
+
+## Integration and remote outcome
+
+- Local preparation DONE; commit/push and new tag succeeded (exit 0), commit
+  `23bb0f97e2bfc20cc900f15e065f3bfe5d2e3655`, tag `v0.1.1` at that exact commit.
+  Old `v0.1.0` remained at `24b5a47d99f7522b1cc8202912900049948ae804`.
+- Release run https://github.com/frisbeecz/docker-oscar/actions/runs/43963535729
+  attempt 1: all six test/evidence jobs passed, including both native startup
+  smokes and both strict Helm matrices. Publish failed.
+- `gh run watch 43963535729 --repo frisbeecz/docker-oscar --exit-status --interval 30`,
+  cwd above, completed exit 1; watcher fully terminated. Read-only
+  `gh run view ... --log-failed` and `gh release view v0.1.1 ...` exited 0.
+- Failure at `ci/chart_registry.py:108`: `ValueError: unsafe registry upload
+  location` after successful POST initiating a chart blob upload. The new
+  publisher's Location validator rejected GHCR's response. Logs do not contain
+  the actual Location; which condition rejected it remains unknown.
+- Partial publication: non-draft prerelease `v0.1.1` with six source assets,
+  no release-manifest.json. Both image platforms and index were pushed according
+  to logs; index digest
+  `sha256:bcb511aa9a265a30e6f8def5e117cd3bbe6105e920c42c2dce8b1ab46628f53c`.
+  Anonymous availability was not verified. Chart manifest PUT was not reached.
+- Remote publication BLOCKED. No automatic retry, tag/release deletion,
+  registry overwrite or permission changes performed. Next correction needs
+  actual sanitized Location evidence without disclosing signed query values
+  or weakening same-origin/repository and credential safeguards.

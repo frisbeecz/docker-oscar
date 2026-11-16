@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tarfile
 import threading
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 import pytest
 
@@ -88,9 +88,12 @@ class Registry:
             return Reply(status=404)
         if path == self.prefix + "/blobs/uploads/" and method == "POST":
             return Reply(status=202, headers={"Location": self.location})
-        if path == self.prefix + "/blobs/uploads/one" and method == "PUT":
+        if path == urlsplit(self.location).path and method == "PUT":
             query = parse_qs(url.query)
-            assert query["state"] == ["opaque"]
+            # Registry-provided URL/query is opaque; only digest is appended.
+            target = urljoin("https://ghcr.io", self.location)
+            separator = "&" if urlsplit(target).query else "?"
+            assert request.full_url == target + separator + urlencode({"digest": digest(request.data)})
             assert query["digest"] == [digest(request.data)]
             self.blobs[query["digest"][0]] = request.data
             return Reply(status=201, headers={"Docker-Content-Digest": digest(request.data)})
@@ -131,6 +134,19 @@ def test_chart_can_be_published_when_untagged_manifests_are_unreadable(package, 
     assert registry.blobs[doc["layers"][0]["digest"]] == package.read_bytes()
     assert json.loads(registry.blobs[doc["config"]["digest"]]) == {
         "apiVersion": "v2", "name": "oscar", "version": "0.1.0", "appVersion": "2.1.1"}
+
+
+@pytest.mark.parametrize("origin", ["", "https://ghcr.io"])
+@pytest.mark.parametrize("query", ["", "?state=opaque%2Bvalue%3D&part=one&part=two"])
+def test_ghcr_singular_upload_location_preserves_tested_chart(package, registry, origin, query):
+    # GHCR HTTP transcript: POST /blobs/uploads/ returns /blobs/upload/<uuid>.
+    # https://gist.github.com/shizhMSFT/b77f2d7f993268a1bdd45a7462866906
+    path = Registry.prefix + "/blobs/upload/7d8507d3-d549-4fad-9113-aaea462eeb23"
+    registry.location = origin + path + query
+    assert publish(package) == digest(registry.manifest)
+    doc = json.loads(registry.manifest)
+    assert registry.blobs[doc["layers"][0]["digest"]] == package.read_bytes()
+    assert registry.calls.count(("PUT", path)) == 2
 
 
 @pytest.mark.parametrize("corrupt", ["chart", "config"])
@@ -182,6 +198,13 @@ def test_registry_failure_stops_without_retry(package, registry, status):
     "/v2/another/repo/blobs/uploads/one", "/token",
     "https://actor:secret@ghcr.io/v2/frisbeecz/charts/oscar/blobs/uploads/one",
     Registry.prefix + "/blobs/uploads/one?digest=sha256:bad",
+    "https://attacker.invalid/v2/frisbeecz/charts/oscar/blobs/upload/one",
+    "http://ghcr.io/v2/frisbeecz/charts/oscar/blobs/upload/one",
+    "https://actor:secret@ghcr.io/v2/frisbeecz/charts/oscar/blobs/upload/one",
+    "/v2/another/repo/blobs/upload/one",
+    Registry.prefix + "/blobs/upload/../manifests/0.1.0",
+    Registry.prefix + "/blobs/upload/one?digest=sha256:bad",
+    Registry.prefix + "/blobs/upload/one#fragment",
 ])
 def test_upload_location_cannot_leak_credentials(package, registry, location):
     registry.location = location
