@@ -166,7 +166,7 @@ def verify(artifacts, commit, *, project=ROOT):
     run_data = read_json(artifacts / "evidence/run.json")
     jobs = verify_jobs(run_data, read_json(artifacts / "evidence/jobs.json"), commit)
     return {"schemaVersion": 1, "gitCommit": commit, "testScope": TEST_SCOPE,
-            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r1",
+            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r2",
             "chartVersion": chart["version"], "platforms": platforms, "charts": packages,
             "sources": {p.name: sha256_file(p) for p in sorted(source.iterdir()) if p.is_file()},
             "runUrl": run_data["html_url"], "runId": run_data["id"], "runAttempt": run_data["run_attempt"],

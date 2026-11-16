@@ -1,9 +1,10 @@
 # Release procedure and trust boundary
 
 The approved public project is **frisbeecz/docker-oscar**, not a fork.
-The first intended release is `v0.1.0`: OSCAR **2.1.1**, image **2.1.1-r1**,
-chart **0.1.0**. No release/tag is created merely by merging or running main CI.
-Create the first tag only after the joint acceptance review.
+The intended new release is `v0.1.1`: OSCAR **2.1.1**, image **2.1.1-r2**,
+chart **0.1.1**. Preserve the partial `v0.1.0` release, tag and existing registry
+artifacts. No release/tag is created merely by merging or running main CI.
+Create the new tag only after the joint acceptance review.
 
 ## Checks and artifacts
 
@@ -52,7 +53,7 @@ are errors, **not a successful partial verification**.
   checksum-verified upstream sources, packaging/license material, plus an exact
   `git archive` containing the entire public project (including chart/workflows);
 * `helm-3.19.0`, `helm-4.3.2`: real chart matrix receipts and separately tested,
-  immutable `oscar-0.1.0.tgz` packages;
+  immutable `oscar-0.1.1.tgz` packages;
 * `native-amd64`, `native-arm64`: single-platform OCI archive, exact build/import
   and `startup-smoke-v1` runtime receipts plus corresponding source provenance;
 * `evidence`: GitHub's run, exact attempt and successful required job URLs.

@@ -66,7 +66,7 @@ def test_existing_claim_is_not_managed():
 
 
 def test_digest_precedes_tag():
-    docs = render_chart({"image": {"tag": "2.1.1-r1", "digest": "sha256:" + "a" * 64}})
+    docs = render_chart({"image": {"tag": "2.1.1-r2", "digest": "sha256:" + "a" * 64}})
     image = one(docs, "Deployment")["spec"]["template"]["spec"]["containers"][0]["image"]
     assert image == "ghcr.io/frisbeecz/docker-oscar@sha256:" + "a" * 64
 

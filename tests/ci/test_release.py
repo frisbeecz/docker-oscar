@@ -8,8 +8,10 @@ from pathlib import Path
 import subprocess
 import shutil
 import tarfile
+import tomllib
 
 import pytest
+import yaml
 
 from ci import CLEAN_DIFF_SHA256, sha256_file, state_identity
 from ci.build_image import inspect_oci
@@ -132,6 +134,30 @@ def test_accept_exact_clean_evidence(evidence):
     assert result["gitCommit"] == commit
     assert result["runUrl"].endswith("/123")
     assert result["testScope"] == "startup-smoke-v1"
+
+
+def test_current_release_versions_are_consistent(evidence):
+    project, directory, commit = evidence
+    result = product().verify(directory, commit, project=project)
+    lock = json.loads((ROOT / "versions.lock.json").read_text())
+    chart = yaml.safe_load((ROOT / "charts/oscar/Chart.yaml").read_text())
+    values = yaml.safe_load((ROOT / "charts/oscar/values.yaml").read_text())
+    project_metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert {
+        "project": project_metadata["project"]["version"],
+        "chart": chart["version"],
+        "app": chart["appVersion"],
+        "oscar": lock["oscar"]["version"],
+        "locked_image": lock["imageVersion"],
+        "default_image": values["image"]["tag"],
+        "release_image": result["imageTag"],
+        "release_oscar": result["oscarVersion"],
+    } == {
+        "project": "0.1.1", "chart": "0.1.1", "app": "2.1.1",
+        "oscar": "2.1.1", "locked_image": "2.1.1-r2",
+        "default_image": "2.1.1-r2", "release_image": "2.1.1-r2",
+        "release_oscar": "2.1.1",
+    }
 
 
 @pytest.mark.parametrize("field,value", [
@@ -342,7 +368,7 @@ def publication(evidence, monkeypatch):
         ref = argv[-1]
         if "/charts/oscar:" in ref:
             raw = state["chart"]
-        elif ref.endswith(":2.1.1-r1"):
+        elif ref.endswith(":2.1.1-r2"):
             raw = state["tag"]
         elif any(ref.endswith(p["manifestDigest"]) for p in identity.values()):
             arch = next(a for a, p in identity.items() if ref.endswith(p["manifestDigest"]))
