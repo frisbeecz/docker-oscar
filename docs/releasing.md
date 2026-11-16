@@ -1,8 +1,8 @@
 # Release procedure and trust boundary
 
 The approved public project is **frisbeecz/docker-oscar**, not a fork.
-The intended new release is `v0.1.2`: OSCAR **2.1.1**, image **2.1.1-r3**,
-chart **0.1.2**. Preserve the partial `v0.1.0` and `v0.1.1` releases, tags and existing
+The intended new release is `v0.1.3`: OSCAR **2.1.1**, image **2.1.1-r4**,
+chart **0.1.3**. Preserve the partial `v0.1.0` and `v0.1.1` releases, tags and existing
 registry artifacts. No release/tag is created merely by merging or running main CI.
 Create the new tag only after the joint acceptance review.
 
@@ -53,7 +53,7 @@ are errors, **not a successful partial verification**.
   checksum-verified upstream sources, packaging/license material, plus an exact
   `git archive` containing the entire public project (including chart/workflows);
 * `helm-3.19.0`, `helm-4.3.2`: real chart matrix receipts and separately tested,
-  immutable `oscar-0.1.2.tgz` packages;
+  immutable `oscar-0.1.3.tgz` packages;
 * `native-amd64`, `native-arm64`: single-platform OCI archive, exact build/import
   and `startup-smoke-v1` runtime receipts plus corresponding source provenance;
 * `evidence`: GitHub's run, exact attempt and successful required job URLs.
@@ -133,8 +133,10 @@ permission to change package visibility, tokens, runner billing or auth scopes.
 The chart publisher uses the same job-scoped token in memory, with only the
 approved `frisbeecz/charts/oscar` GHCR scope. It does not save another registry
 credential file, follow authenticated redirects or retry failures. GHCR blob
-upload Locations may use `/blobs/upload/<id>` (singular) or
-`/blobs/uploads/<id>`; both must remain on HTTPS `ghcr.io` within that exact
+upload Locations are opaque: neither endpoint spelling nor session identifier
+format is guessed. Resolve relative Locations against the upload request URL,
+preserving their query and appending only the digest. They must remain on
+HTTPS `ghcr.io` within that exact
 repository. Use the returned URL/query unchanged and append only the digest.
 GHCR blob downloads may follow one HTTPS redirect to its approved
 `pkg-containers.githubusercontent.com/ghcr1/blobs/` CDN, **without Authorization**;

@@ -153,9 +153,9 @@ def test_current_release_versions_are_consistent(evidence):
         "release_image": result["imageTag"],
         "release_oscar": result["oscarVersion"],
     } == {
-        "project": "0.1.2", "chart": "0.1.2", "app": "2.1.1",
-        "oscar": "2.1.1", "locked_image": "2.1.1-r3",
-        "default_image": "2.1.1-r3", "release_image": "2.1.1-r3",
+        "project": "0.1.3", "chart": "0.1.3", "app": "2.1.1",
+        "oscar": "2.1.1", "locked_image": "2.1.1-r4",
+        "default_image": "2.1.1-r4", "release_image": "2.1.1-r4",
         "release_oscar": "2.1.1",
     }
 
@@ -368,7 +368,7 @@ def publication(evidence, monkeypatch):
         ref = argv[-1]
         if "/charts/oscar:" in ref:
             raw = state["chart"]
-        elif ref.endswith(":2.1.1-r3"):
+        elif ref.endswith(":2.1.1-r4"):
             raw = state["tag"]
         elif any(ref.endswith(p["manifestDigest"]) for p in identity.values()):
             arch = next(a for a, p in identity.items() if ref.endswith(p["manifestDigest"]))

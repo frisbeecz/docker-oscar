@@ -88,10 +88,10 @@ class Registry:
             return Reply(status=404)
         if path == self.prefix + "/blobs/uploads/" and method == "POST":
             return Reply(status=202, headers={"Location": self.location})
-        if path == urlsplit(self.location).path and method == "PUT":
+        target = urljoin("https://ghcr.io" + self.prefix + "/blobs/uploads/", self.location)
+        if path == urlsplit(target).path and method == "PUT":
             query = parse_qs(url.query)
             # Registry-provided URL/query is opaque; only digest is appended.
-            target = urljoin("https://ghcr.io", self.location)
             separator = "&" if urlsplit(target).query else "?"
             assert request.full_url == target + separator + urlencode({"digest": digest(request.data)})
             assert query["digest"] == [digest(request.data)]
@@ -149,6 +149,21 @@ def test_ghcr_singular_upload_location_preserves_tested_chart(package, registry,
     assert registry.calls.count(("PUT", path)) == 2
 
 
+@pytest.mark.parametrize("location", [
+    Registry.prefix + "/blobs/upload/opaque.id=with+padding/",
+    "https://ghcr.io" + Registry.prefix + "/blobs/sessions/opaque%2Bid/finish?state=a%2Bb&part=1&part=2",
+    "../upload/opaque.id=/",
+    "session.id%3D?state=opaque%3D",
+])
+def test_upload_location_suffix_is_opaque(package, registry, location):
+    registry.location = location
+    assert publish(package) == digest(registry.manifest)
+    target = urlsplit(urljoin("https://ghcr.io" + Registry.prefix + "/blobs/uploads/", location))
+    assert registry.calls.count(("PUT", target.path)) == 2
+    doc = json.loads(registry.manifest)
+    assert registry.blobs[doc["layers"][0]["digest"]] == package.read_bytes()
+
+
 @pytest.mark.parametrize("corrupt", ["chart", "config"])
 def test_downloaded_chart_and_config_must_match_published_bytes(package, registry, corrupt):
     registry.corrupt = corrupt
@@ -202,9 +217,13 @@ def test_registry_failure_stops_without_retry(package, registry, status):
     "http://ghcr.io/v2/frisbeecz/charts/oscar/blobs/upload/one",
     "https://actor:secret@ghcr.io/v2/frisbeecz/charts/oscar/blobs/upload/one",
     "/v2/another/repo/blobs/upload/one",
-    Registry.prefix + "/blobs/upload/../manifests/0.1.0",
+    Registry.prefix + "/blobs/upload/../../manifests/0.1.0",
     Registry.prefix + "/blobs/upload/one?digest=sha256:bad",
     Registry.prefix + "/blobs/upload/one#fragment",
+    "",
+    Registry.prefix + "-other/blobs/upload/one",
+    Registry.prefix + "/blobs/upload/%2e%2e/%2e%2e/manifests/0.1.0",
+    Registry.prefix + "/blobs/upload/one?digest=",
 ])
 def test_upload_location_cannot_leak_credentials(package, registry, location):
     registry.location = location

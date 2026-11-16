@@ -130,3 +130,42 @@ done
   fast-forward push main, create new local v0.1.2 at that exact commit and push
   only that new tag. Observe corresponding Release run; never rerun old runs,
   move tags, overwrite/delete partial releases or alter credentials/settings.
+
+## Integration and new pipeline
+
+- Primary committed the twelve approved unit files:
+  `ea853e4bd55ddb01cf0025457f3dea0070e981e4`, then
+  `git push origin HEAD:refs/heads/main`, `git tag v0.1.2 <commit>` and
+  `git push origin refs/tags/v0.1.2:refs/tags/v0.1.2` all exited 0, cwd above.
+- Read-back `git ls-remote` confirms main and new v0.1.2 at ea853e4;
+  v0.1.0 remains 24b5a47, v0.1.1 remains 23bb0f9. Only unrelated design
+  document was dirty after integration (before this outcome note).
+- `gh run list --repo frisbeecz/docker-oscar --workflow release.yaml
+  --branch v0.1.2 --commit ea853e4bd55ddb01cf0025457f3dea0070e981e4
+  --event push --limit 5 --json databaseId,status,conclusion,headSha,headBranch,url,attempt`
+  exited 0: fresh run 43967243767, attempt 1, queued at the expected commit.
+  https://github.com/frisbeecz/docker-oscar/actions/runs/43967243767
+- Pipeline outcome/public publication remains unverified until run completion.
+
+## Remote outcome: BLOCKED
+
+- Watch `gh run watch 43967243767 --repo frisbeecz/docker-oscar
+  --exit-status --interval 30` completed exit 1; no watcher remains active.
+  All six static/Helm/native/evidence jobs succeeded; publish failed.
+- Primary read-only `gh run view 43967243767 --repo frisbeecz/docker-oscar
+  --log-failed` and `gh release view v0.1.2 --repo frisbeecz/docker-oscar
+  --json tagName,isPrerelease,isDraft,publishedAt,url,assets` exited 0, cwd above.
+  At 2026-11-16T22:17:30Z `ci/chart_registry.py:110` rejected the returned
+  upload Location even with the singular/plural correction:
+  `ValueError: unsafe registry upload location`. Actual Location still was
+  not logged; no precise rejected URL component can be established.
+- Before failure both platform image pushes and index push succeeded in logs;
+  image 2.1.1-r3 index digest
+  `sha256:dc64796dbd893bff3dde2bace1010772802b02fdb03930195a162c581757b2e2`.
+  Anonymous image availability has not been independently verified.
+- Prerelease v0.1.2 exists, non-draft, with six source assets; no
+  release-manifest.json. Failure occurs before chart blob PUT/manifest PUT,
+  so this run did not publish the chart manifest; upload session may remain.
+- Publisher attempt 2 of 2 has failed live acceptance: BLOCKED. No third
+  implementation, rerun, new version/tag, release deletion or registry/auth
+  changes performed. K3s deployment remains pending.

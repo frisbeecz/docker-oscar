@@ -10,7 +10,7 @@ The project provides:
   WebSocket/WebCodecs streaming.
 - **AMD64 and ARM64 image targets** using official OSCAR **2.1.1** Debian13
   Qt6 packages on LinuxServer's Debian13 Selkies base. The current image revision is
-  **2.1.1-r3**.
+  **2.1.1-r4**.
 - **A Kubernetes Helm chart** with configurable storage, resources, Ingress
   and Gateway API routing.
 - **Persistent profiles and settings**, with separate volumes for application

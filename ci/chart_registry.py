@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import tarfile
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import yaml
@@ -101,16 +101,26 @@ def publish_chart(path, *, sha256, version, username, token):
     status, _, _ = _request("GET", tag_url, authorization, statuses=(200, 404))
     _require(status == 404, "chart tag already exists; refusing overwrite")
     for descriptor, data in [(config_descriptor, config), (chart_descriptor, package)]:
-        _, headers, _ = _request("POST", BASE + PREFIX + "/blobs/uploads/", authorization,
+        upload_url = BASE + PREFIX + "/blobs/uploads/"
+        _, headers, _ = _request("POST", upload_url, authorization,
                                  data=b"", statuses=(202,))
-        location = urljoin(BASE, headers.get("Location", ""))
+        raw_location = headers.get("Location", "")
+        location = urljoin(upload_url, raw_location)
         parsed = urlsplit(location)
-        # GHCR returns /blobs/upload/<id> (singular) after POST /blobs/uploads/.
-        # Use that Location unchanged; permit neither another origin nor repo.
-        _require(parsed.scheme == "https" and parsed.netloc == "ghcr.io"
-                 and re.fullmatch(re.escape(PREFIX) + r"/blobs/uploads?/[A-Za-z0-9_-]+", parsed.path)
-                 and not parsed.fragment and "digest" not in parse_qs(parsed.query),
-                 "unsafe registry upload location")
+        # Location is opaque: do not guess upload endpoint or identifier syntax.
+        # Constrain the credential destination, not GHCR's session URL format.
+        checks = {
+            "missing": bool(raw_location),
+            "https": parsed.scheme == "https",
+            "origin": parsed.netloc == "ghcr.io",
+            "repository": parsed.path.startswith(PREFIX + "/blobs/"),
+            "traversal": not any(p in {".", ".."} for p in unquote(parsed.path).split("/")),
+            "fragment": not parsed.fragment,
+            "digest": "digest" not in parse_qs(parsed.query, keep_blank_values=True),
+        }
+        # Only invariant names, never signed URL/query values or credentials.
+        failed = ", ".join(name for name, valid in checks.items() if not valid)
+        _require(not failed, "unsafe registry upload location: " + failed)
         separator = "&" if parsed.query else "?"
         _request("PUT", location + separator + urlencode({"digest": descriptor["digest"]}),
                  authorization, data=data, media="application/octet-stream", statuses=(201,))

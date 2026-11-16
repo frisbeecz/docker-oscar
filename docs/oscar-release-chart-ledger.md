@@ -97,3 +97,42 @@
   partial v0.1.0/v0.1.1 releases and old tags/images; prepare a fresh chart/project
   0.1.2 with image 2.1.1-r3 before the new v0.1.2 tag. The approved correction
   is not further modified; publisher attempt budget remains 2 of 2.
+- Final live acceptance FAILED: Release 43967243767 (v0.1.2 at ea853e4)
+  still rejects upload Location in ci/chart_registry.py:110. All six
+  test/evidence jobs pass, but actual Location remains absent from log.
+  State BLOCKED, attempt budget 2/2 exhausted. No third implementation or
+  remote retry/recovery. Full outcome/partial publication is recorded in
+  docs/oscar-release-v012-ledger.md.
+
+## User-authorized additional attempt 3 (one additional attempt only)
+
+- User explicitly approved removing guessed upload-path/identifier formatting
+  and requested committing the correction and launching a fresh release.
+  Owner remains high primary, same cwd and local scope; no budget reset.
+- New acceptance: treat registry-provided upload suffix and query as opaque;
+  keep HTTPS, same GHCR origin, exact repository blob subtree, no traversal,
+  no credential redirects, unchanged bytes/digests and no retries.
+  Add safe rejection reasons without printing signed URLs or credentials.
+- Current live Location is still unavailable; do not claim its exact shape.
+  Reproduce the known overconstraint using opaque IDs, trailing slashes and
+  request-relative Locations, and preserve all existing negative checks.
+- Verify RED/GREEN, full native static/pytest checks and inspect relevant diff.
+  A further failure is BLOCKED, not permission for another correction.
+- New publication will use a fresh v0.1.3 / image 2.1.1-r4, preserving every
+  existing tag, partial release and image. Version preparation is separate
+  mechanical scope; remote actions only after native checks pass.
+- Attempt 3 local verification (same cwd): four expected RED cases for opaque
+  suffix/relative Locations, then 46 targeted passes. Artifacts:
+  artifacts/chart-publish-a3/red.log and green-final.log. An old negative
+  fixture's path was corrected to actually escape the blob subtree; internal
+  request-relative normalization within the same subtree is intentionally valid.
+- Full integrated `.venv/bin/python -m ci.check --static-only --out-dir
+  artifacts/release-v013-static-a1` exited 0: all six groups passed, full
+  pytest 363 passed. Receipt base ea853e4, dirtyDiffSha256
+  ba3b6677aae05f870d6cb1c557b25d7cb1094db0660c56e0a624709710669e12.
+- Review of the newly approved opaque-URL acceptance: coding-review session
+  ses_e19c10578ffe0kV5R0zJVe1Bsb, DONE/PASS; no substantive findings.
+  Relevant complete diff artifacts/chart-publish-a3/review.diff SHA256
+  86cc012e42dde88bfae0871a1e5c33624fc4f6a2a69fe08ff205d2980bc24015;
+  all review-state.sha256 entries matched after review. No source/test changes
+  after verification/review. Live publication remains unverified.
