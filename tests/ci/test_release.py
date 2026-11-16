@@ -391,6 +391,9 @@ def publication(evidence, monkeypatch):
     monkeypatch.setattr(release, "github_evidence", server_evidence)
     monkeypatch.setattr(release, "mutate", server_mutate)
     monkeypatch.setattr(release, "urlopen", public_fetch)
+    # Protocol and native Helm compatibility are exercised in test_chart_registry.
+    monkeypatch.setattr(release, "publish_chart",
+                        lambda *args, **kwargs: "sha256:" + hashlib.sha256(state["chart"]).hexdigest())
     return release, project, directory, commit, commands, events, state
 
 
@@ -418,6 +421,29 @@ def test_publication_network_failure_stops_without_retry_or_finalization(publica
     with pytest.raises(OSError):
         release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
     assert len(commands) == 1 and commands[0][:3] == ["gh", "release", "create"]
+
+
+def test_publish_avoids_registry_read_of_untagged_chart(publication, monkeypatch):
+    """Reintroducing Helm ExtendedCopy would fail on a registry hiding untagged manifests."""
+    release, project, directory, commit, _, _, state = publication
+    original = release.mutate
+
+    def registry_boundary(command, **kwargs):
+        if list(map(str, command))[:2] == ["helm", "push"]:
+            raise subprocess.CalledProcessError(1, command, stderr='failed to perform "Tag": not found')
+        return original(command, **kwargs)
+
+    def direct_publish(path, *, sha256, version, username, token):
+        assert Path(path).read_bytes() == b"synthetic chart"
+        assert sha256 == hashlib.sha256(b"synthetic chart").hexdigest()
+        assert (version, username, token) == ("0.1.0", "frisbeecz", "synthetic-not-a-token")
+        return "sha256:" + hashlib.sha256(state["chart"]).hexdigest()
+
+    monkeypatch.setattr(release, "mutate", registry_boundary)
+    monkeypatch.setattr(release, "publish_chart", direct_publish, raising=False)
+    result = release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    assert result["chartReference"] == "ghcr.io/frisbeecz/charts/oscar:0.1.0"
+    assert result["chartDigest"] == "sha256:" + hashlib.sha256(state["chart"]).hexdigest()
 
 
 def test_verify_published_rejects_tag_pointing_elsewhere(publication):

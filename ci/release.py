@@ -20,6 +20,7 @@ from ci import (ROOT, CLEAN_DIFF_SHA256, load_lock, output, run, sha256_file,
                 state_identity, write_json)
 from ci.build_image import inspect_oci
 from ci.chart import matrix as chart_matrix
+from ci.chart_registry import publish_chart
 from ci.runtime import REQUIRED_CHECKS, TEST_SCOPE, validate_checks, validate_process
 
 REPO = "frisbeecz/docker-oscar"
@@ -257,13 +258,10 @@ def publish(artifacts, commit, registry, *, project=ROOT):
         (docker / "config.json").chmod(0o600)
         require(tools["buildx"]["version"] in output(["docker", "--config", docker, "buildx", "version"]),
                 "isolated publication config lost the pinned Buildx plugin")
-        helm = temp / "helm.json"
         mutate(["skopeo", "login", "--authfile", auth, "--username", username,
                 "--password-stdin", "ghcr.io"], input=token, text=True)
         mutate(["docker", "--config", docker, "login", "ghcr.io", "--username", username,
                 "--password-stdin"], input=token, text=True)
-        mutate(["helm", "registry", "login", "ghcr.io", "--username", username, "--password-stdin",
-                "--registry-config", helm], input=token, text=True)
         for arch, platform in manifest["platforms"].items():
             ref = f"{IMAGE}:{manifest['imageTag']}-{arch}"
             mutate(["skopeo", "copy", "--preserve-digests", "--authfile", auth,
@@ -278,11 +276,14 @@ def publish(artifacts, commit, registry, *, project=ROOT):
                    "docker://" + IMAGE + ":" + manifest["imageTag"]], capture_output=True).stdout
         manifest["imageIndexDigest"] = "sha256:" + hashlib.sha256(raw).hexdigest()
         chart = manifest["charts"]["4.3.2"]
-        mutate(["helm", "push", chart["path"], "oci://" + REGISTRY + "/charts", "--registry-config", helm])
+        manifest["chartDigest"] = publish_chart(
+            chart["path"], sha256=chart["sha256"], version=manifest["chartVersion"],
+            username=username, token=token)
         manifest["chartReference"] = REGISTRY + "/charts/oscar:" + manifest["chartVersion"]
         chart_manifest = run(["skopeo", "inspect", "--raw", "--authfile", auth,
                               "docker://" + manifest["chartReference"]], capture_output=True).stdout
-        manifest["chartDigest"] = "sha256:" + hashlib.sha256(chart_manifest).hexdigest()
+        require("sha256:" + hashlib.sha256(chart_manifest).hexdigest() == manifest["chartDigest"],
+                "registry chart manifest changed")
     manifest.update(imageRepository=IMAGE, releaseTag=tag, repository=REPO,
                     releaseUrl=f"https://github.com/{REPO}/releases/tag/{tag}")
     target = Path(artifacts) / "release-manifest.json"

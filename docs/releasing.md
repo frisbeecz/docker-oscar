@@ -112,7 +112,12 @@ Order:
 2. Copy both tested OCI archives with Skopeo `--preserve-digests`.
    Digest-preservation failure blocks; no layer conversion or rebuild fallback.
 3. Create the image index from those exact platform manifest digests.
-4. Push the already packaged/tested chart, without editing defaults or repacking.
+4. Publish the already packaged/tested chart through `ci.chart_registry`, without
+   editing defaults or repacking. Upload its Helm config/chart blobs, then PUT the
+   locally held OCI manifest **directly under the version tag**. Do not use Helm
+   ExtendedCopy/Tag's untagged-manifest read-back, which failed during the initial
+   release. Refuse an existing chart tag. Read back the tagged manifest, config
+   and exact chart bytes and check their digests before recording publication.
 5. Upload `release-manifest.json`: `testScope: "startup-smoke-v1"`, source checksums, platform config/manifest/layer
    digests, index digest, chart digest/version and exact run/job URLs.
 6. Verify anonymously retrievable image/platform bytes and chart tarball, as well
@@ -123,6 +128,17 @@ after the first write may leave a prerelease or partial registry content.
 **Stop and report that state; do not rerun, overwrite, delete or change account
 settings as an automatic recovery.** Public pull denial is a blocker, not
 permission to change package visibility, tokens, runner billing or auth scopes.
+
+The chart publisher uses the same job-scoped token in memory, with only the
+approved `frisbeecz/charts/oscar` GHCR scope. It does not save another registry
+credential file, follow authenticated redirects or retry failures. GHCR blob
+downloads may follow one HTTPS redirect to its approved
+`pkg-containers.githubusercontent.com/ghcr1/blobs/` CDN, **without Authorization**;
+the downloaded content must still match its expected size and SHA256. Other
+redirects fail closed. Protocol regression tests cover a registry where
+untagged manifests cannot be read, and a real local Helm pull checks package
+compatibility. These local checks do not establish that a subsequent live GHCR
+publication has succeeded.
 
 After a successful release, pin installations using the manifest's
 `imageRepository@imageIndexDigest` and chart OCI digest. Do not guess digests from
