@@ -1,0 +1,50 @@
+# Local-only Quick Start. See docs/compose.md before using existing data.
+services:
+  oscar:
+    image: ghcr.io/frisbeecz/docker-oscar:2.1.1-r5@sha256:4903f5c456dd1d75f4128acf3e06feab798a54368c7cc3e8f5ffadb665b1640d
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    shm_size: "512m"
+    security_opt:
+      - no-new-privileges
+    cap_drop:
+      - NET_RAW
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      TZ: "${TZ:-Etc/UTC}"
+      PIXELFLUX_WAYLAND: "true"
+      HARDEN_DESKTOP: "true"
+      START_DOCKER: "false"
+      RESTART_APP: "true"
+      DISABLE_WINDOW_BUTTONS: "true"
+      HARDEN_KEYBINDS: "false"
+      DISABLE_MOUSE_BUTTONS: "false"
+      SELKIES_FILE_TRANSFERS: "upload,download"
+      SELKIES_UI_SIDEBAR_SHOW_FILES: "true"
+      FILE_MANAGER_PATH: /config/Uploads
+      SELKIES_COMMAND_ENABLED: "false"
+      SELKIES_UI_SIDEBAR_SHOW_APPS: "false"
+    volumes:
+      - type: volume
+        source: config
+        target: /config
+        volume:
+          nocopy: true
+      - type: volume
+        source: data
+        target: /config/Documents/OSCAR20_Data
+        volume:
+          nocopy: true
+      - type: volume
+        source: sdcard
+        target: /config/SDCARD
+        read_only: true
+        volume:
+          nocopy: true
+
+volumes:
+  config:
+  data:
+  sdcard:

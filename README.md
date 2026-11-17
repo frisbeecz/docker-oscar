@@ -15,6 +15,44 @@ The project provides:
   and Gateway API routing.
 - **Persistent profiles and settings**, with separate volumes for application
   configuration, OSCAR data and SD-card imports.
+- **Docker Compose Quick Start** with local-only access, browser uploads and
+  automatic application restart.
+
+## Quick Start — Docker Compose
+
+Install Docker Engine or Docker Desktop with **Docker Compose v2 or later**.
+No Python, Kubernetes, local image build or GPU is needed to run the release.
+
+```sh
+git clone https://github.com/frisbeecz/docker-oscar.git
+cd docker-oscar
+docker compose pull
+docker compose up -d
+```
+
+Open **http://localhost:3000** in a current Chrome or Edge browser. Initial
+startup may take a little time; use `docker compose logs --tail=100 oscar` to
+check progress. The published image selects Linux AMD64 or ARM64 automatically.
+If your installation provides the standalone `docker-compose` executable
+instead, substitute it for `docker compose` in these commands.
+
+The included [`compose.yaml`](compose.yaml) creates three persistent named
+volumes and binds **only to 127.0.0.1**. This local example has no login configured:
+do not change it to a public listener without an authenticated HTTPS proxy.
+
+To import a copy of an SD card:
+
+1. Copy the **whole card**, preserving all files and directory structure.
+2. Open **Files** in the browser sidebar and drag in the copied folder.
+3. In OSCAR, import from `/config/Uploads/<your-copied-folder>`.
+
+Uploads persist in the config volume, separately from the OSCAR profile/data
+volume. Do not upload into the profile database directory or alter the original
+card. ZIP files are not automatically extracted.
+
+See the **[Compose guide](docs/compose.md)** for all settings, storage,
+window recovery, backups, upgrades and troubleshooting. For Kubernetes, use the
+[Helm chart guide](docs/chart.md).
 
 ## Kubernetes and storage
 
@@ -40,16 +78,20 @@ data and volumes available for rollback. The
 [container guide](docs/container.md) covers access security and backups of each
 volume.
 
-## Development status
+## Verification scope
 
-The current startup-only smoke still awaits native verification on both
-architectures. The user-approved 2026-11-15 scope supersedes the historical
-GUI/profile/persistence/Kubernetes acceptance plan: start the container, require
-HTTP200, and observe the same unprivileged OSCAR process for at least 10 seconds.
-It does **not** verify remote GUI usability/media, import, profile/data persistence,
-watchdog behavior, or actual Kubernetes installation/routing. Follow
-[CI](https://github.com/frisbeecz/docker-oscar/actions) and the
-[acceptance guide](docs/acceptance.md) for verification evidence.
+[Release v0.1.4](https://github.com/frisbeecz/docker-oscar/releases/tag/v0.1.4)
+passed native AMD64/ARM64 `startup-smoke-v1` and both Helm validation matrices.
+The startup smoke requires a running container, HTTP200 and the same
+unprivileged OSCAR process for at least 10 seconds. It is not a full GUI,
+CPAP import or profile-restoration test.
+
+Separate ARM64 K3s homelab checks exercised browser uploads and automatic
+application restart; browser use and uploads were also manually confirmed.
+Those observations do not expand the automated CI guarantees. Compose parser
+checks validate this example's configuration, not a fresh Compose runtime or
+browser session. See [CI](https://github.com/frisbeecz/docker-oscar/actions) and
+the [acceptance guide](docs/acceptance.md) for the automated scope.
 
 ## Development
 
@@ -65,7 +107,8 @@ python -m ci.check
 
 The check command runs linters, image/chart/CI contract tests and both Helm
 matrices. Use `python -m pytest -q` for the static test suite; Helm is required
-for chart render and packaging tests.
+for chart render and packaging tests, and a Docker Compose CLI for Compose
+configuration tests. Those Compose tests do not need a Docker daemon.
 
 Native CLI, on matching **disposable GitHub-hosted Linux runners only**:
 
