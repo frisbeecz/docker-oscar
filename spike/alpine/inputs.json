@@ -1,0 +1,17 @@
+{
+  "experimental": true,
+  "base": "ghcr.io/linuxserver/baseimage-selkies:alpine324@sha256:f2820b8df78eb020785850492c2b6547de2c762fcfcd644b11d4f7e211f5a987",
+  "source": {
+    "url": "https://gitlab.com/CrimsonNape/OSCAR-SQL/-/archive/4f14624616d62c6986788417bc5c519c807a7ade/OSCAR-SQL-4f14624616d62c6986788417bc5c519c807a7ade.tar.gz",
+    "sha256": "063b4b6e797d40f8d060453f865fb0e5f48c71cbb72adee0387e76e844313dad",
+    "commit": "4f14624616d62c6986788417bc5c519c807a7ade"
+  },
+  "releasedImage": "ghcr.io/frisbeecz/docker-oscar@sha256:386ff28089d399c1305f42cb811a53ce9c9ac18695981888fb13094d348fad0f",
+  "trivy": {
+    "version": "0.76.2",
+    "sha256": {
+      "amd64": "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf",
+      "arm64": "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
+    }
+  }
+}

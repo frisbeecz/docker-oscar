@@ -1,0 +1,74 @@
+name: Alpine feasibility spike
+
+on:
+  push:
+    branches: [spike/oscar-alpine]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpine-spike-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  native:
+    name: experimental-${{ matrix.arch }}
+    if: github.repository == 'frisbeecz/docker-oscar'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Pin scanner and vulnerability database
+        run: python3 spike/alpine/scan.py "$ARCH" prepare
+      - name: Scan released Debian image
+        run: python3 spike/alpine/scan.py "$ARCH" released
+      - name: Scan Alpine base
+        run: python3 spike/alpine/scan.py "$ARCH" base
+      - name: Native experimental source build
+        run: |
+          mkdir -p "artifacts/alpine/$ARCH"
+          docker build --progress=plain --file spike/alpine/Dockerfile \
+            --tag "oscar-alpine-spike:$ARCH" . 2>&1 | tee "artifacts/alpine/$ARCH/build.log"
+          docker image inspect "oscar-alpine-spike:$ARCH" > "artifacts/alpine/$ARCH/image.json"
+      - name: Scan experimental image
+        run: python3 spike/alpine/scan.py "$ARCH" candidate
+      - name: Runtime probe
+        run: python3 spike/alpine/check-runtime.py "$ARCH"
+      - name: Save success evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: alpine-${{ matrix.arch }}
+          path: |
+            artifacts/alpine/**/*.json
+            artifacts/alpine/**/*.log
+            artifacts/alpine/**/*.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: alpine-failure-${{ matrix.arch }}
+          path: |
+            artifacts/alpine/**/*.json
+            artifacts/alpine/**/*.log
+            artifacts/alpine/**/*.txt
+          if-no-files-found: error
+          retention-days: 14
