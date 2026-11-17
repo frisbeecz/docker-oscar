@@ -140,9 +140,9 @@ def test_current_release_versions_are_consistent(evidence):
         "release_image": result["imageTag"],
         "release_oscar": result["oscarVersion"],
     } == {
-        "project": "1.0.1", "chart": "1.0.1", "app": "2.1.1",
-        "oscar": "2.1.1", "locked_image": "2.1.1-r6",
-        "default_image": "2.1.1-r6", "release_image": "2.1.1-r6",
+        "project": "1.0.2", "chart": "1.0.2", "app": "2.1.1",
+        "oscar": "2.1.1", "locked_image": "2.1.1-r7",
+        "default_image": "2.1.1-r7", "release_image": "2.1.1-r7",
         "release_oscar": "2.1.1",
     }
 
@@ -340,7 +340,7 @@ def publication(evidence, monkeypatch):
             raw = state["dockerhub"]
         elif "/charts/oscar:" in ref:
             raw = state["chart"]
-        elif ref.endswith(":2.1.1-r6"):
+        elif ref.endswith(":2.1.1-r7"):
             raw = state["tag"]
         elif any(ref.endswith(p["manifestDigest"]) for p in identity.values()):
             arch = next(a for a, p in identity.items() if ref.endswith(p["manifestDigest"]))
@@ -422,7 +422,7 @@ def test_dockerhub_mirror_copies_complete_tested_index_by_digest(publication, mo
     result = release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
     index_digest = "sha256:" + hashlib.sha256(state["index"]).hexdigest()
     mirrors = [c for c in commands if c[:2] == ["skopeo", "copy"]
-               and c[-1] == "docker://docker.io/frisbeecz24/frisbeecz:2.1.1-r6"]
+               and c[-1] == "docker://docker.io/frisbeecz24/frisbeecz:2.1.1-r7"]
     assert len(mirrors) == 1 and len(logins) == 1
     assert "--all" in mirrors[0] and "--preserve-digests" in mirrors[0]
     assert mirrors[0][-2] == "docker://ghcr.io/frisbeecz/docker-oscar@" + index_digest

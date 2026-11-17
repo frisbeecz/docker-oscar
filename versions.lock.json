@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "imageVersion": "2.1.1-r6",
+  "imageVersion": "2.1.1-r7",
   "platforms": [
     "linux/amd64",
     "linux/arm64"
