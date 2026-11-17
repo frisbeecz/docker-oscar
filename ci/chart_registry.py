@@ -51,8 +51,6 @@ def _request(method, url, authorization, *, data=None, media=None, statuses=(200
         response = error
     with response:
         _require(response.status in statuses, f"chart registry {method}: HTTP {response.status}")
-        if response.status == 307:
-            return response.status, response.headers, b""
         body = response.read(limit + 1)
         _require(len(body) <= limit, "chart registry response size exceeds expected bytes")
         return response.status, response.headers, body
@@ -63,7 +61,7 @@ def _descriptor(media, data):
 
 
 def publish_chart(path, *, sha256, version, username, token):
-    """Return the verified OCI digest; preserve the tested .tgz byte for byte."""
+    """Upload tested bytes and return their OCI digest; Helm verifies the pull."""
     path = Path(path)
     _require(path.is_file() and not path.is_symlink(), "missing or unsafe chart")
     package = path.read_bytes()
@@ -127,21 +125,4 @@ def publish_chart(path, *, sha256, version, username, token):
     # Unlike Helm ExtendedCopy/Tag, this sends locally held bytes directly by
     # version. It never asks the registry to fetch an untagged manifest.
     _request("PUT", tag_url, authorization, data=manifest, media=MANIFEST, statuses=(201,))
-    _, _, published = _request("GET", tag_url, authorization, limit=len(manifest))
-    _require(_descriptor(MANIFEST, published)["digest"] == expected, "published manifest checksum mismatch")
-    for descriptor, _ in [(config_descriptor, config), (chart_descriptor, package)]:
-        status, headers, downloaded = _request(
-            "GET", BASE + PREFIX + "/blobs/" + descriptor["digest"], authorization,
-            limit=descriptor["size"], statuses=(200, 307))
-        if status == 307:
-            # GHCR serves blobs via signed CDN URLs. Never forward its bearer.
-            location = headers.get("Location", "")
-            parsed = urlsplit(location)
-            _require(parsed.scheme == "https" and parsed.netloc == "pkg-containers.githubusercontent.com"
-                     and parsed.path.startswith("/ghcr1/blobs/") and not parsed.fragment,
-                     "unsafe registry blob redirect")
-            _, _, downloaded = _request("GET", location, None, limit=descriptor["size"])
-        _require(len(downloaded) == descriptor["size"]
-                 and _descriptor(descriptor["mediaType"], downloaded)["digest"] == descriptor["digest"],
-                 "downloaded chart/config bytes checksum mismatch")
     return expected

@@ -1,151 +1,93 @@
-# Release procedure and trust boundary
+# Releasing OSCAR
 
-The approved public project is **frisbeecz/docker-oscar**, not a fork.
-The intended new release is `v0.1.3`: OSCAR **2.1.1**, image **2.1.1-r4**,
-chart **0.1.3**. Preserve the partial `v0.1.0` and `v0.1.1` releases, tags and existing
-registry artifacts. No release/tag is created merely by merging or running main CI.
-Create the new tag only after the joint acceptance review.
+Project: **frisbeecz/docker-oscar**. Current versions: chart/project **0.1.4**,
+OSCAR **2.1.1**, image **2.1.1-r5**. Existing tags, releases and published
+artifacts must not be overwritten as a recovery mechanism.
 
-## Checks and artifacts
+## Flow
 
-Use a project-local venv, Python 3.14 and the hashed `requirements-ci.lock`.
-This is the current interpreter requirement, superseding the historical plan's
-Python 3.13 selection.
-`python3 -m ci.check --install-tools` downloads checksum-verified tools into
-`.venv/`, using `ci/tools.lock.json`; it never configures an account.
-Existing download caches are rehashed; corrupt caches fail instead of refreshing.
-Action commit pins were verified against upstream tag and commit objects.
-Tool hashes come from upstream release asset metadata, Helm/Kubernetes checksum
-files and PyPI distribution metadata.
+1. Push a fresh stable `v<chart-version>` tag.
+2. GitHub runs the normal CI: static checks, both Helm versions, and native
+   AMD64/ARM64 build/startup smoke. `publish` has `needs: [tests]`; failed or
+   skipped CI blocks publication without a separate job-result API audit.
+3. The publish job downloads this run's immutable artifacts. It validates the
+   tested files once, before logging in or making external writes.
+4. Create a prerelease containing the corresponding-source/license files.
+   Verify their public availability/checksums before distributing binaries.
+5. Copy both tested OCI archives with Skopeo `--preserve-digests`, create the
+   image index with Buildx, and upload the already tested chart package.
+   Nothing is rebuilt or repackaged during publication.
+6. Save/upload `release-manifest.json`, then perform one final distribution
+   check using Skopeo and `helm pull`. Only success makes the prerelease final.
+
+Main/PR CI does not publish. Only the trusted tag publish job has
+`contents: write` and `packages: write`. Tokens are passed through environment
+or stdin, never command-line arguments. Temporary registry credentials are
+isolated and cleaned up.
+
+## What is checked
+
+The single local publication gate checks the clean tag commit, canonical
+source bundle, native image/runtime receipts and archives, and both tested
+Helm packages. Native receipts must identify the tested bytes, successful
+cleanup and the current `startup-smoke-v1` scope. Downloaded artifact digests
+are also checked by GitHub's artifact action.
+
+CI success is enforced by GitHub's dependency graph, not collected and
+revalidated via the Actions API. There is no separate evidence job or
+`evidence` CLI command. The release manifest retains the run URL, ID and attempt
+from the trusted job environment, plus artifact/source/platform digests.
+`jobUrls` remains an empty object for format compatibility; individual job
+results are available through the linked GitHub run.
+
+The final check reads the image index/platform manifests with Skopeo and checks
+them against the tested identities. Helm downloads the chart, handles registry
+CDN redirects itself, and the package checksum must match the tested archive.
+Skopeo checks the tagged chart manifest digest. Source downloads are checked
+once, before the binary uploads, rather than downloaded again at the end.
+
+The small `ci.chart_registry` uploader remains because the original Helm push
+failed while reading an untagged manifest. It uploads the Helm config/chart
+blobs and PUTs the local manifest directly under the version tag. It refuses
+an existing chart tag and only sends credentials to the approved HTTPS GHCR
+repository. Upload session suffixes are opaque. **It does not download blobs,
+implement CDN redirects or duplicate the final Helm verification.**
+
+## Commands
+
+Use Python 3.14 and a project-local venv with `requirements-ci.lock`.
+Project-local tool versions/checksums are in `ci/tools.lock.json`.
 
 ```sh
+# Local checks; no publication:
 python3 -m ci.check
 python3 -m ci.release verify --artifacts artifacts --commit "$(git rev-parse HEAD)"
-```
 
-The common check runs actionlint (including workflow ShellCheck), yamllint,
-hadolint, ShellCheck, Ruff's fatal Python checks, bare pytest and both actual
-Helm 3.19.0 / 4.3.2 strict-schema matrices. Every lint input class must be nonempty;
-missing tools fail. Go-template files are linted/rendered by Helm, not treated
-as plain YAML. The two current shell entrypoints use POSIX sh, including the
-sourced Wayland autostart file without a shebang.
-Hadolint errors block; warnings remain visible in its log. In particular,
-unversioned Debian dependencies and the Dockerfile pipefail recommendation remain
-warnings: the base/OS packages are not claimed to be bit-reproducible.
-The application image uses pinned Selkies Debian13 and hash-checked official
-OSCAR2.1.1 Debian13 packages, not a local OSCAR compilation. The source manifest
-records binary URLs/hashes and package version/architecture alongside the
-unchanged exact source archive, COPYING and empty patch list. Matching version
-and embedded short commit are evidence of alignment, not proof of reproducible
-upstream binaries or complete corresponding source. Resolve remaining upstream
-source/build-input obligations before redistribution; see NOTICE. Native
-startup-only verification of this Debian image is still pending.
-The explicitly user-approved 2026-11-15 `startup-smoke-v1` scope supersedes
-historical mandatory GUI/OCR/profile/persistence/Kubernetes acceptance.
-
-The second command is read-only. Incomplete local receipts, dirty state,
-different commits, missing architectures, skipped/failed jobs and changed bytes
-are errors, **not a successful partial verification**.
-
-`ci.yaml` is also the reusable exact-tag test workflow. The jobs produce:
-
-* `static-sources`: `static/check.json`, logs, `sources/origin.json`,
-  checksum-verified upstream sources, packaging/license material, plus an exact
-  `git archive` containing the entire public project (including chart/workflows);
-* `helm-3.19.0`, `helm-4.3.2`: real chart matrix receipts and separately tested,
-  immutable `oscar-0.1.3.tgz` packages;
-* `native-amd64`, `native-arm64`: single-platform OCI archive, exact build/import
-  and `startup-smoke-v1` runtime receipts plus corresponding source provenance;
-* `evidence`: GitHub's run, exact attempt and successful required job URLs.
-
-The same-run artifact download uses immutable artifacts with digest mismatch
-errors; receipt, source, OCI and package digests are checked independently.
-No prior workflow run is used as a substitute. Main/PR CI never logs in or pushes.
-Native acceptance uses only GitHub-owned disposable Ubuntu 24.04 AMD64/ARM64
-runners. BuildKit needs privileged **infrastructure** containers there;
-this does not authorize a privileged OSCAR workload or local bootstrap.
-Skopeo 1.25.1 is built from checksum-locked source on those runners. Host build
-prerequisites come from the runner's Ubuntu repositories, not the app image.
-Bootstrap no longer acquires/builds Tesseract, traineddata, Chromium, kind or
-kubectl. Existing lock entries and historical helper unit tests may remain.
-
-Normal runtime starts one owned container and fresh synthetic volumes, requires
-loopback HTTP200 and at least 10 seconds of the same UID1234/GID2345 OSCAR20
-process with exact executable/arguments. See [container](container.md) for
-deadlines and receipt fields. No browser, profile creation, restart, database
-audit or kind deployment is invoked. Success artifacts upload only after smoke
-and owner-checked cleanup; failures retain JSON/container logs without credentials.
-Release rejects legacy/missing/mistyped/short/dirty/mismatched/cleanup-error
-runtime receipts. Negative GUI and Kubernetes receipts are no longer required.
-All other source/static/Helm/OCI/same-run job gates stay mandatory.
-
-Remote GUI usability/media, import, profile/data persistence, watchdog and actual
-Kubernetes installation/routing remain **unverified**, not silently passed.
-Backup/migration and official-binary corresponding-source obligations remain;
-source evidence does not establish redistribution compliance.
-
-## Publication
-
-`release.yaml` handles `v*` tag pushes, but the publication gate accepts only
-stable project SemVer matching the chart version. Every required gate runs anew
-at the tag commit. A successful reusable workflow is a mandatory dependency.
-There is no `always()` or `continue-on-error` escape into publication.
-
-The publish job alone receives job-scoped `packages: write` and `contents: write`
-(plus read access to Actions evidence). **Those permissions exist from job start,
-not after validation.** It checks out only the trusted tag state, never PR code.
-All receipt verification occurs before the first publication/login mutation;
-the publisher repeats verification and re-reads live GitHub job results.
-Secrets are provided through stdin/environment, never shell source or argv.
-
-```sh
-# Invoked only by the trusted exact-tag GitHub job:
+# Only inside the trusted tag job, after successful CI:
 python3 -m ci.release publish --artifacts artifacts \
   --commit "$GITHUB_SHA" --registry ghcr.io/frisbeecz
+
+# Explicit read-back verification of a saved release manifest:
 python3 -m ci.release verify-published \
   --release-manifest artifacts/release-manifest.json
 ```
 
-Order:
+## Limits and failure handling
 
-1. Create a public **prerelease with corresponding source assets first**.
-   Anonymous HTTPS downloads must match their checksums before any binary upload.
-2. Copy both tested OCI archives with Skopeo `--preserve-digests`.
-   Digest-preservation failure blocks; no layer conversion or rebuild fallback.
-3. Create the image index from those exact platform manifest digests.
-4. Publish the already packaged/tested chart through `ci.chart_registry`, without
-   editing defaults or repacking. Upload its Helm config/chart blobs, then PUT the
-   locally held OCI manifest **directly under the version tag**. Do not use Helm
-   ExtendedCopy/Tag's untagged-manifest read-back, which failed during the initial
-   release. Refuse an existing chart tag. Read back the tagged manifest, config
-   and exact chart bytes and check their digests before recording publication.
-5. Upload `release-manifest.json`: `testScope: "startup-smoke-v1"`, source checksums, platform config/manifest/layer
-   digests, index digest, chart digest/version and exact run/job URLs.
-6. Verify anonymously retrievable image/platform bytes and chart tarball, as well
-   as source assets. Only then mark the prerelease final.
+Startup smoke means a running container, loopback HTTP 200 and the same
+unprivileged OSCAR process observed for at least ten seconds on both native
+architectures. It does **not** prove GUI/media usability, imports, persistence
+or a working Kubernetes deployment.
 
-GitHub and GHCR are not an atomic transaction. A network/permission/quota failure
-after the first write may leave a prerelease or partial registry content.
-**Stop and report that state; do not rerun, overwrite, delete or change account
-settings as an automatic recovery.** Public pull denial is a blocker, not
-permission to change package visibility, tokens, runner billing or auth scopes.
+Official binary/source alignment is recorded, not claimed to be reproducible
+or complete proof of redistribution compliance. Preserve corresponding-source
+and license material and resolve remaining obligations in `NOTICE.md`.
+OS/base packages are not claimed to be bit-reproducible. Existing Hadolint
+warnings remain visible.
 
-The chart publisher uses the same job-scoped token in memory, with only the
-approved `frisbeecz/charts/oscar` GHCR scope. It does not save another registry
-credential file, follow authenticated redirects or retry failures. GHCR blob
-upload Locations are opaque: neither endpoint spelling nor session identifier
-format is guessed. Resolve relative Locations against the upload request URL,
-preserving their query and appending only the digest. They must remain on
-HTTPS `ghcr.io` within that exact
-repository. Use the returned URL/query unchanged and append only the digest.
-GHCR blob downloads may follow one HTTPS redirect to its approved
-`pkg-containers.githubusercontent.com/ghcr1/blobs/` CDN, **without Authorization**;
-the downloaded content must still match its expected size and SHA256. Other
-redirects fail closed. Protocol regression tests cover a registry where
-untagged manifests cannot be read, and a real local Helm pull checks package
-compatibility. These local checks do not establish that a subsequent live GHCR
-publication has succeeded.
+Publication is not atomic. A failure may leave images, a chart tag or a
+prerelease already uploaded. Stop and report the partial state; do not
+automatically retry, overwrite, delete or change package visibility/auth.
+Local tests are not proof of a successful live release.
 
-After a successful release, pin installations using the manifest's
-`imageRepository@imageIndexDigest` and chart OCI digest. Do not guess digests from
-documentation examples or use mutable tags as the sole provenance.
+After a verified release, pin deployments to the recorded image/chart digests.

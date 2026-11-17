@@ -129,3 +129,41 @@ done
 - Approved integration: commit only the named version/correction/own-ledger
   files, fast-forward push main, tag that exact commit with fresh v0.1.3 and
   push only that new tag. Preserve all earlier tags/releases/images.
+
+## Integration and trigger
+
+- Native preflight, named-file commit, fast-forward main push and fresh-tag
+  push all exited 0, cwd above. Commit/tag:
+  7bd835d9d033ded070883a522f03df5340a92051.
+  Read-back main and v0.1.3 both match; v0.1.0/v0.1.1/v0.1.2 unchanged.
+  Unrelated design SHA256 remains unchanged.
+- First immediate filtered gh run list returned an empty list (exit 0);
+  tag push is confirmed, but run discovery/publication not yet confirmed.
+- Subsequent read-only filtered discovery exited 0: Release 43974494359,
+  attempt 1, in_progress at expected v0.1.3 commit.
+  https://github.com/frisbeecz/docker-oscar/actions/runs/43974494359
+   Live publication remains unverified pending completion.
+
+## Remote outcome — BLOCKED
+
+- Owned `gh run watch 43974494359 --repo frisbeecz/docker-oscar
+  --exit-status --interval 30` completed exit 1; all six tests/evidence jobs
+  passed, publish job 133677210745 failed.
+- Read-only `gh run view 43974494359 --repo frisbeecz/docker-oscar
+  --log-failed` and `gh release view v0.1.3 --repo frisbeecz/docker-oscar
+  --json tagName,isPrerelease,isDraft,url,assets`, cwd above, exited 0.
+  Failure at 2026-11-16T23:04:28Z: ci/chart_registry.py:140,
+  `ValueError: unsafe registry blob redirect`.
+- The upload Location validation now passed. Control reached blob download
+  verification after both blob uploads, tagged chart manifest PUT and matching
+  manifest read-back. The CDN redirect failed the separate HTTPS/host/path/
+  fragment allowlist; actual Location was not logged, so the failed component
+  is unknown. Full downloaded-byte verification did not complete.
+- Image index push for 2.1.1-r4 succeeded per log:
+  sha256:3081749d3136954328b3c7b649f3eb4f2ecca3e136e904bf714c8fc322a8cf92.
+  Anonymous availability is not independently verified. Chart tag 0.1.3 was
+  accepted/read back in this run, but final distribution verification failed.
+- Release v0.1.3 remains a non-draft prerelease with six corresponding-source
+  assets and no release-manifest.json. No rerun, overwrite, deletion, auth
+  change or cluster mutation performed. Publisher's explicitly extended
+  attempt budget is exhausted: stop before further implementation.

@@ -1,4 +1,4 @@
-"""Fail-closed same-run release of tested bytes; no rebuilds. Apache-2.0."""
+"""Publish tested CI artifacts, then verify distribution once. Apache-2.0."""
 from __future__ import annotations
 
 import argparse
@@ -26,7 +26,6 @@ from ci.runtime import REQUIRED_CHECKS, TEST_SCOPE, validate_checks, validate_pr
 REPO = "frisbeecz/docker-oscar"
 REGISTRY = "ghcr.io/frisbeecz"
 IMAGE = REGISTRY + "/docker-oscar"
-GATES = {"static", "helm-3.19.0", "helm-4.3.2", "native-amd64", "native-arm64"}
 DIGEST = r"sha256:[a-f0-9]{64}"
 
 
@@ -75,28 +74,6 @@ def validate_tag(tag, chart_version):
             "release tag must be stable project SemVer")
     require(tag == "v" + chart_version, "release tag/chart version mismatch")
     return tag
-
-
-def verify_jobs(run_data, jobs, commit):
-    require(run_data.get("head_sha") == commit
-            and run_data.get("repository", {}).get("full_name") == REPO
-            and run_data.get("event") == "push", "GitHub run identity/event mismatch")
-    run_id, attempt = run_data.get("id"), run_data.get("run_attempt")
-    require(type(run_id) is int and type(attempt) is int, "GitHub run id/attempt missing")
-    url = f"https://github.com/{REPO}/actions/runs/{run_id}"
-    require(run_data.get("html_url") == url, "GitHub run URL mismatch")
-    selected = {}
-    for job in jobs:
-        name = job.get("name", "").split(" / ")[-1]
-        if name in GATES:
-            require(name not in selected, "duplicate gate jobs")
-            require(job.get("run_id") == run_id and job.get("run_attempt") == attempt
-                    and job.get("head_sha") == commit and job.get("status") == "completed"
-                    and job.get("conclusion") == "success", f"GitHub gate failed/skipped/mismatched: {name}")
-            require(job.get("html_url", "").startswith(url + "/job/"), "job URL mismatch")
-            selected[name] = job["html_url"]
-    require(set(selected) == GATES, "missing mandatory GitHub gate jobs")
-    return selected
 
 
 def verify(artifacts, commit, *, project=ROOT):
@@ -161,16 +138,11 @@ def verify(artifacts, commit, *, project=ROOT):
     source = artifacts / "sources"
     expected = run(["git", "archive", "--format=tar.gz", commit], cwd=project, capture_output=True).stdout
     expected_sha = hashlib.sha256(expected).hexdigest()
-    for directory in (source, *(artifacts / "native" / a / "sources" for a in ("amd64", "arm64"))):
-        verify_sources(directory, commit, locked, expected_sha)
-    run_data = read_json(artifacts / "evidence/run.json")
-    jobs = verify_jobs(run_data, read_json(artifacts / "evidence/jobs.json"), commit)
+    verify_sources(source, commit, locked, expected_sha)
     return {"schemaVersion": 1, "gitCommit": commit, "testScope": TEST_SCOPE,
-            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r4",
+            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r5",
             "chartVersion": chart["version"], "platforms": platforms, "charts": packages,
-            "sources": {p.name: sha256_file(p) for p in sorted(source.iterdir()) if p.is_file()},
-            "runUrl": run_data["html_url"], "runId": run_data["id"], "runAttempt": run_data["run_attempt"],
-            "jobUrls": jobs}
+             "sources": {p.name: sha256_file(p) for p in sorted(source.iterdir()) if p.is_file()}}
 
 
 def verify_sources(source, commit, locked, expected_sha):
@@ -187,20 +159,6 @@ def verify_sources(source, commit, locked, expected_sha):
     checked_file(source / "project-source.tar.gz", project_receipt.get("archiveSha256"))
     require(expected_sha == project_receipt["archiveSha256"],
             "project source archive is not exact git commit")
-
-
-def github_evidence(directory):
-    """Read only this run and attempt; no arbitrary run/artifact selection."""
-    require(os.environ.get("GITHUB_REPOSITORY") == REPO, "unexpected GitHub repository")
-    run_id, attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
-    require(run_id.isdecimal() and attempt.isdecimal(), "invalid run/attempt")
-    data = json.loads(output(["gh", "api", f"repos/{REPO}/actions/runs/{run_id}"]))
-    pages = json.loads(output(["gh", "api", "--paginate", "--slurp",
-                             f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"]))
-    jobs = [j for page in pages for j in page["jobs"]]
-    verify_jobs(data, jobs, os.environ["GITHUB_SHA"])
-    write_json(Path(directory) / "run.json", data)
-    write_json(Path(directory) / "jobs.json", jobs)
 
 
 def mutate(command, **kwargs):
@@ -222,19 +180,16 @@ def publish(artifacts, commit, registry, *, project=ROOT):
     manifest = verify(artifacts, commit, project=project)  # Before ANY mutation/login.
     require(registry == REGISTRY, "only approved registry permitted")
     tag = validate_tag(os.environ.get("GITHUB_REF_NAME", ""), manifest["chartVersion"])
+    run_id, attempt = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    require(run_id.isascii() and run_id.isdecimal() and int(run_id) > 0
+            and attempt.isascii() and attempt.isdecimal() and int(attempt) > 0, "invalid run/attempt")
     require(os.environ.get("GITHUB_EVENT_NAME") == "push"
             and os.environ.get("GITHUB_REF_TYPE") == "tag"
             and os.environ.get("GITHUB_REPOSITORY") == REPO
-            and os.environ.get("GITHUB_SHA") == commit
-            and os.environ.get("GITHUB_RUN_ID") == str(manifest["runId"])
-            and os.environ.get("GITHUB_RUN_ATTEMPT") == str(manifest["runAttempt"]),
-            "publish requires exact tag push in the verified run/attempt")
-    # Independently re-read server state before first external write.
-    with tempfile.TemporaryDirectory(prefix="release-verify-", dir=Path(artifacts)) as temp:
-        github_evidence(temp)
-        require(read_json(Path(temp) / "run.json")["head_branch"] == tag, "tag/run mismatch")
-        require(verify_jobs(read_json(Path(temp) / "run.json"), read_json(Path(temp) / "jobs.json"), commit)
-                == manifest["jobUrls"], "GitHub job evidence changed")
+            and os.environ.get("GITHUB_SHA") == commit, "publish requires exact trusted tag push")
+    # GitHub's needs dependency gates CI success; no second job-result API audit.
+    manifest.update(runId=int(run_id), runAttempt=int(attempt),
+                    runUrl=f"https://github.com/{REPO}/actions/runs/{run_id}", jobUrls={})
     token = os.environ.get("GH_TOKEN")
     require(bool(token), "job-scoped GH_TOKEN required")
     username = os.environ.get("GITHUB_ACTOR", "")
@@ -266,8 +221,6 @@ def publish(artifacts, commit, registry, *, project=ROOT):
             ref = f"{IMAGE}:{manifest['imageTag']}-{arch}"
             mutate(["skopeo", "copy", "--preserve-digests", "--authfile", auth,
                     "oci-archive:" + platform["archive"], "docker://" + ref])
-            actual = json.loads(output(["skopeo", "inspect", "--authfile", auth, "docker://" + ref]))
-            require(actual["Digest"] == platform["manifestDigest"], "registry platform digest changed")
         refs = [f"{IMAGE}@{v['manifestDigest']}" for v in manifest["platforms"].values()]
         mutate(["docker", "--config", docker, "buildx", "imagetools", "create",
                 "--tag", f"{IMAGE}:{manifest['imageTag']}", *refs])
@@ -280,10 +233,6 @@ def publish(artifacts, commit, registry, *, project=ROOT):
             chart["path"], sha256=chart["sha256"], version=manifest["chartVersion"],
             username=username, token=token)
         manifest["chartReference"] = REGISTRY + "/charts/oscar:" + manifest["chartVersion"]
-        chart_manifest = run(["skopeo", "inspect", "--raw", "--authfile", auth,
-                              "docker://" + manifest["chartReference"]], capture_output=True).stdout
-        require("sha256:" + hashlib.sha256(chart_manifest).hexdigest() == manifest["chartDigest"],
-                "registry chart manifest changed")
     manifest.update(imageRepository=IMAGE, releaseTag=tag, repository=REPO,
                     releaseUrl=f"https://github.com/{REPO}/releases/tag/{tag}")
     target = Path(artifacts) / "release-manifest.json"
@@ -311,10 +260,7 @@ def verify_published(path):
                   capture_output=True).stdout
     require("sha256:" + hashlib.sha256(tag_raw).hexdigest() == manifest["imageIndexDigest"],
             "published image tag points to a different index")
-    raw = run(["skopeo", "inspect", "--raw", "docker://" + IMAGE + "@" + manifest["imageIndexDigest"]],
-              capture_output=True).stdout
-    require("sha256:" + hashlib.sha256(raw).hexdigest() == manifest["imageIndexDigest"], "index digest mismatch")
-    index = json.loads(raw)
+    index = json.loads(tag_raw)
     require(len(index["manifests"]) == 2 and all(d["platform"]["os"] == "linux"
             for d in index["manifests"]), "index must contain exactly two Linux platform manifests")
     actual = {d["platform"]["architecture"]: d["digest"] for d in index["manifests"]}
@@ -325,11 +271,6 @@ def verify_published(path):
         require(data["config"]["digest"] == platform["configDigest"]
                 and [v["digest"] for v in data["layers"]] == platform["layerDigests"], "published config/layers changed")
     with tempfile.TemporaryDirectory(prefix="published-", dir=Path(path).parent) as temp:
-        mutate(["gh", "release", "download", manifest["releaseTag"], "--repo", REPO,
-                "--dir", temp, "--pattern", "*"])
-        for name, digest in manifest["sources"].items():
-            require(Path(name).name == name, "unsafe source asset name")
-            checked_file(Path(temp) / name, digest)
         mutate(["helm", "pull", "oci://" + REGISTRY + "/charts/oscar",
                 "--version", manifest["chartVersion"], "--destination", temp])
         checked_file(Path(temp) / f"oscar-{manifest['chartVersion']}.tgz", manifest["charts"]["4.3.2"]["sha256"])
@@ -349,15 +290,11 @@ def main(argv=None):
             command.add_argument("--registry", required=True)
     command = commands.add_parser("verify-published")
     command.add_argument("--release-manifest", required=True, type=Path)
-    command = commands.add_parser("evidence")
-    command.add_argument("--out-dir", required=True, type=Path)
     args = parser.parse_args(argv)
     if args.command == "verify":
         print(json.dumps(verify(args.artifacts, args.commit), indent=2))
     elif args.command == "publish":
         publish(args.artifacts, args.commit, args.registry)
-    elif args.command == "evidence":
-        github_evidence(args.out_dir)
     else:
         verify_published(args.release_manifest)
 

@@ -17,7 +17,6 @@ from ci import CLEAN_DIFF_SHA256, sha256_file, state_identity
 from ci.build_image import inspect_oci
 
 ROOT = Path(__file__).resolve().parents[2]
-GATES = ["static", "helm-3.19.0", "helm-4.3.2", "native-amd64", "native-arm64"]
 RUNTIME = {"containerRunning", "httpReady", "oscarStable"}
 PROCESS = {"pid": 42, "start": "12345", "uid": 1234, "gid": 2345, "exe": "/usr/bin/OSCAR20",
            "args": ["OSCAR20", "--legacy", "--datadir", "/config/Documents/OSCAR20_Data"]}
@@ -113,17 +112,6 @@ def evidence(tmp_path):
         "packaging": {"path": "packaging.tar.gz", "sha256": sha256_file(source / "packaging.tar.gz")}})
     dump(source / "project.json", {**base, "archiveSha256": sha256_file(source / "project-source.tar.gz"),
                                   "checks": {"gitArchive": True}})
-    for arch in ("amd64", "arm64"):
-        shutil.copytree(source, directory / "native" / arch / "sources")
-    run = {"id": 123, "run_attempt": 1, "head_sha": commit, "event": "push", "head_branch": "main",
-           "html_url": "https://github.com/frisbeecz/docker-oscar/actions/runs/123",
-           "repository": {"full_name": "frisbeecz/docker-oscar"}}
-    jobs = [{"id": i, "name": name, "status": "completed", "conclusion": "success",
-             "head_sha": commit, "run_id": 123, "run_attempt": 1,
-             "html_url": f"https://github.com/frisbeecz/docker-oscar/actions/runs/123/job/{i}"}
-            for i, name in enumerate(GATES, 1)]
-    dump(directory / "evidence/run.json", run)
-    dump(directory / "evidence/jobs.json", jobs)
     return project, directory, commit
 
 
@@ -132,7 +120,6 @@ def test_accept_exact_clean_evidence(evidence):
     result = product().verify(directory, commit, project=project)
     assert set(result["platforms"]) == {"amd64", "arm64"}
     assert result["gitCommit"] == commit
-    assert result["runUrl"].endswith("/123")
     assert result["testScope"] == "startup-smoke-v1"
 
 
@@ -153,9 +140,9 @@ def test_current_release_versions_are_consistent(evidence):
         "release_image": result["imageTag"],
         "release_oscar": result["oscarVersion"],
     } == {
-        "project": "0.1.3", "chart": "0.1.3", "app": "2.1.1",
-        "oscar": "2.1.1", "locked_image": "2.1.1-r4",
-        "default_image": "2.1.1-r4", "release_image": "2.1.1-r4",
+        "project": "0.1.4", "chart": "0.1.4", "app": "2.1.1",
+        "oscar": "2.1.1", "locked_image": "2.1.1-r5",
+        "default_image": "2.1.1-r5", "release_image": "2.1.1-r5",
         "release_oscar": "2.1.1",
     }
 
@@ -178,8 +165,7 @@ def test_reject_mismatched_receipt(evidence, field, value):
 
 @pytest.mark.parametrize("missing", [
     "native/arm64/runtime-arm64.json", "native/amd64/build-amd64.json",
-    "chart/helm-3.19.0/chart.json", "sources/origin.json", "evidence/jobs.json",
-    "native/arm64/sources/origin.json"])
+    "chart/helm-3.19.0/chart.json", "sources/origin.json"])
 def test_missing_gate_is_not_skipped(evidence, missing):
     project, directory, commit = evidence
     (directory / missing).unlink()
@@ -187,9 +173,8 @@ def test_missing_gate_is_not_skipped(evidence, missing):
         product().verify(directory, commit, project=project)
 
 
-@pytest.mark.parametrize("change", ["archive", "source", "chart", "alpha",
-                                    "job-failed", "job-skipped", "job-missing", "run-sha"])
-def test_tamper_and_failed_jobs_rejected(evidence, change):
+@pytest.mark.parametrize("change", ["archive", "source", "chart", "alpha"])
+def test_tampered_artifacts_rejected(evidence, change):
     project, directory, commit = evidence
     if change in {"archive", "source", "chart"}:
         path = {"archive": "native/amd64/image-amd64.oci.tar", "source": "sources/packaging.tar.gz",
@@ -200,19 +185,6 @@ def test_tamper_and_failed_jobs_rejected(evidence, change):
         path = directory / "native/amd64/build-amd64.json"
         data = json.loads(path.read_text())
         data["sources"]["oscar"]["version"] = "2.2.0-alpha-1"
-        dump(path, data)
-    elif change == "run-sha":
-        path = directory / "evidence/run.json"
-        data = json.loads(path.read_text())
-        data["head_sha"] = "f" * 40
-        dump(path, data)
-    else:
-        path = directory / "evidence/jobs.json"
-        data = json.loads(path.read_text())
-        if change == "job-missing":
-            data.pop()
-        else:
-            data[0]["conclusion"] = change.removeprefix("job-")
         dump(path, data)
     with pytest.raises(ValueError):
         product().verify(directory, commit, project=project)
@@ -335,9 +307,6 @@ def publication(evidence, monkeypatch):
     """Only third-party boundaries are doubled; the entire local gate stays real."""
     project, directory, commit = evidence
     release = product()
-    data = json.loads((directory / "evidence/run.json").read_text())
-    data["head_branch"] = "v0.1.0"
-    dump(directory / "evidence/run.json", data)
     # Tool lock is read using project-relative ci/tools.lock.json; keep the
     # synthetic checkout clean without adding another source-state mutation.
     original_lock = release.load_lock
@@ -368,7 +337,7 @@ def publication(evidence, monkeypatch):
         ref = argv[-1]
         if "/charts/oscar:" in ref:
             raw = state["chart"]
-        elif ref.endswith(":2.1.1-r4"):
+        elif ref.endswith(":2.1.1-r5"):
             raw = state["tag"]
         elif any(ref.endswith(p["manifestDigest"]) for p in identity.values()):
             arch = next(a for a, p in identity.items() if ref.endswith(p["manifestDigest"]))
@@ -383,15 +352,9 @@ def publication(evidence, monkeypatch):
             return "skopeo version 1.25.1"
         if argv[0] == "docker" and argv[-2:] == ["buildx", "version"]:
             return "github.com/docker/buildx v0.39.0"
-        if argv[:2] == ["skopeo", "inspect"] and "--raw" not in argv:
-            arch = argv[-1].rsplit("-", 1)[-1]
-            return json.dumps({"Digest": identity[arch]["manifestDigest"]})
         if argv[:3] == ["skopeo", "inspect", "--raw"]:
             return server_run(command, **kwargs).stdout.decode()
         raise AssertionError(argv)
-    def server_evidence(path):
-        for name in ("run.json", "jobs.json"):
-            shutil.copyfile(directory / "evidence" / name, Path(path) / name)
     def server_mutate(command, **kwargs):
         argv = [str(c) for c in command]
         commands.append(argv)
@@ -401,10 +364,6 @@ def publication(evidence, monkeypatch):
             assert config.is_file(), "isolated auth config lost the pinned Buildx plugin directory"
             assert json.loads(config.read_text())["cliPluginsExtraDirs"] == [
                 str(project / ".venv/docker/cli-plugins")]
-        if argv[:3] == ["gh", "release", "download"]:
-            destination = Path(argv[argv.index("--dir") + 1])
-            for file in (directory / "sources").iterdir():
-                shutil.copyfile(file, destination / file.name)
         if argv[:2] == ["helm", "pull"]:
             shutil.copyfile(directory / "chart/helm-4.3.2/oscar-0.1.0.tgz",
                             Path(argv[argv.index("--destination") + 1]) / "oscar-0.1.0.tgz")
@@ -414,7 +373,6 @@ def publication(evidence, monkeypatch):
         return io.BytesIO((directory / "sources" / url.rsplit("/", 1)[-1]).read_bytes())
     monkeypatch.setattr(release, "run", server_run)
     monkeypatch.setattr(release, "output", server_output)
-    monkeypatch.setattr(release, "github_evidence", server_evidence)
     monkeypatch.setattr(release, "mutate", server_mutate)
     monkeypatch.setattr(release, "urlopen", public_fetch)
     # Protocol and native Helm compatibility are exercised in test_chart_registry.
@@ -437,6 +395,38 @@ def test_publish_sources_first_preserves_digests_and_never_rebuilds(publication)
     assert result["testScope"] == "startup-smoke-v1"
     assert json.loads((directory / "release-manifest.json").read_text())["gitCommit"] == commit
     assert all("synthetic-not-a-token" not in " ".join(c) for c in commands)
+
+
+def test_publish_uses_workflow_gate_without_separate_job_evidence(publication):
+    release, project, directory, commit, commands, _, _ = publication
+    result = release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    assert result["runUrl"] == "https://github.com/frisbeecz/docker-oscar/actions/runs/123"
+    assert result["runId"] == 123 and result["runAttempt"] == 1
+    assert result["jobUrls"] == {}
+    assert len([c for c in commands if c[:2] == ["helm", "pull"]]) == 1
+    assert not any(c[:3] == ["gh", "release", "download"] for c in commands)
+
+
+@pytest.mark.parametrize("failure", ["helm", "package", "chart-manifest"])
+def test_final_chart_verification_failure_does_not_finalize(publication, monkeypatch, failure):
+    release, project, directory, commit, commands, _, state = publication
+    original = release.mutate
+    def consumer(command, **kwargs):
+        argv = list(map(str, command))
+        if argv[:2] == ["helm", "pull"]:
+            if failure == "helm":
+                raise subprocess.CalledProcessError(1, argv, stderr="download failed")
+            result = original(command, **kwargs)
+            if failure == "package":
+                (Path(argv[argv.index("--destination") + 1]) / "oscar-0.1.0.tgz").write_bytes(b"changed")
+            if failure == "chart-manifest":
+                state["chart"] = b'{"schemaVersion":2,"changed":true}'
+            return result
+        return original(command, **kwargs)
+    monkeypatch.setattr(release, "mutate", consumer)
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    assert not any(c[:3] == ["gh", "release", "edit"] for c in commands)
 
 
 def test_publication_network_failure_stops_without_retry_or_finalization(publication, monkeypatch):

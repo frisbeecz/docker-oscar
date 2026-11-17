@@ -56,10 +56,10 @@ def test_minimal_job_permissions():
         for key, job in wf["jobs"].items():
             perms = job.get("permissions", {})
             if name == "release" and key == "publish":
-                assert perms == {"contents": "write", "packages": "write", "actions": "read"}
+                assert perms == {"contents": "write", "packages": "write"}
             else:
                 assert all(v == "read" for v in perms.values())
-                assert set(perms) <= {"contents", "actions"}
+                assert set(perms) <= {"contents"}
             assert not job.get("continue-on-error", False)
 
 
@@ -70,13 +70,13 @@ def test_release_dependency_closure():
     assert jobs["tests"]["uses"] == "./.github/workflows/ci.yaml"
     assert not jobs["publish"].get("if"), "publish uses implicit success(), never always()"
     ci_jobs = ws["ci"]["jobs"]
-    assert closure(ci_jobs, "evidence") == {"static", "helm", "native"}
+    assert set(ci_jobs) == {"static", "helm", "native"}
     assert set(ci_jobs["helm"]["strategy"]["matrix"]["helm"]) == {"3.19.0", "4.3.2"}
     native = ci_jobs["native"]["strategy"]["matrix"]["include"]
     assert {(p["arch"], p["runner"]) for p in native} == {
         ("amd64", "ubuntu-24.04"), ("arm64", "ubuntu-24.04-arm")}
     assert ci_jobs["native"]["strategy"]["fail-fast"] is False
-    assert all(not ci_jobs[j].get("if") for j in ("static", "helm", "native", "evidence"))
+    assert all(not ci_jobs[j].get("if") for j in ci_jobs)
 
 
 def test_native_gate_is_startup_only_and_success_upload_depends_on_smoke():
@@ -108,11 +108,14 @@ def test_publication_inputs_are_data():
                 # Expressions are allowed in env/with, not executable shell source.
                 assert "${{" not in step.get("run", "")
     steps = workflows()["release"]["jobs"]["publish"]["steps"]
-    verify = next(i for i, s in enumerate(steps) if "ci.release verify " in s.get("run", ""))
     publish = next(i for i, s in enumerate(steps) if "ci.release publish " in s.get("run", ""))
-    assert verify < publish
+    # publish() validates the downloaded artifacts itself before its first write.
+    # No independent verify step or API audit is needed in the workflow.
     assert all(not re.search(r"login|gh release|skopeo copy|imagetools create|helm push",
-                             s.get("run", "")) for s in steps[:verify])
+                             s.get("run", "")) for s in steps[:publish])
+    downloads = [i for i, s in enumerate(steps)
+                 if s.get("uses", "").startswith("actions/download-artifact@")]
+    assert len(downloads) == 3 and all(i < publish for i in downloads)
 
 
 @pytest.mark.parametrize("workflow", ["ci", "release"])

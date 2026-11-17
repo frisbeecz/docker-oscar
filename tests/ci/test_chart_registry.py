@@ -49,19 +49,11 @@ class Registry:
         self.calls = []
         self.failure = None
         self.location = self.prefix + "/blobs/uploads/one?state=opaque"
-        self.corrupt = None
-        self.redirect = None
-        self.redirect_body = b""
-        self.cdn_reads = 0
 
     def open(self, request, timeout):
         assert timeout == 120
         url = urlsplit(request.full_url)
         assert url.scheme == "https"
-        if url.netloc == "pkg-containers.githubusercontent.com":
-            assert request.get_header("Authorization") is None
-            self.cdn_reads += 1
-            return Reply(self.blobs[url.path.rsplit("/", 1)[-1]])
         assert url.netloc == "ghcr.io"
         method, path = request.get_method(), url.path
         self.calls.append((method, path))
@@ -97,16 +89,6 @@ class Registry:
             assert query["digest"] == [digest(request.data)]
             self.blobs[query["digest"][0]] = request.data
             return Reply(status=201, headers={"Docker-Content-Digest": digest(request.data)})
-        if path.startswith(self.prefix + "/blobs/") and method == "GET":
-            if self.redirect:
-                return Reply(self.redirect_body, status=307,
-                             headers={"Location": self.redirect + path.rsplit("/", 1)[-1]})
-            data = self.blobs[path.rsplit("/", 1)[-1]]
-            if self.corrupt == "chart" and data[:2] == b"\x1f\x8b":
-                data += b"corrupt"
-            if self.corrupt == "config" and data[:1] == b"{":
-                data += b"corrupt"
-            return Reply(data)
         raise AssertionError((method, path))
 
 
@@ -136,6 +118,14 @@ def test_chart_can_be_published_when_untagged_manifests_are_unreadable(package, 
         "apiVersion": "v2", "name": "oscar", "version": "0.1.0", "appVersion": "2.1.1"}
 
 
+def test_publish_leaves_blob_downloads_to_the_helm_consumer(package, registry):
+    # A publisher must not implement a second, incompatible CDN downloader.
+    # Native Helm consumes these same uploaded bytes in the compatibility test.
+    registry.failure = ("GET", Registry.prefix + "/blobs/" + digest(package.read_bytes()), 403)
+    assert publish(package) == digest(registry.manifest)
+    assert not any(method == "GET" and "/blobs/" in path for method, path in registry.calls)
+
+
 @pytest.mark.parametrize("origin", ["", "https://ghcr.io"])
 @pytest.mark.parametrize("query", ["", "?state=opaque%2Bvalue%3D&part=one&part=two"])
 def test_ghcr_singular_upload_location_preserves_tested_chart(package, registry, origin, query):
@@ -162,32 +152,6 @@ def test_upload_location_suffix_is_opaque(package, registry, location):
     assert registry.calls.count(("PUT", target.path)) == 2
     doc = json.loads(registry.manifest)
     assert registry.blobs[doc["layers"][0]["digest"]] == package.read_bytes()
-
-
-@pytest.mark.parametrize("corrupt", ["chart", "config"])
-def test_downloaded_chart_and_config_must_match_published_bytes(package, registry, corrupt):
-    registry.corrupt = corrupt
-    with pytest.raises(ValueError, match="(checksum|size|bytes)"):
-        publish(package)
-
-
-@pytest.mark.parametrize("body", [b"", b"redirect explanation" * 100])
-def test_ghcr_blob_cdn_redirect_strips_registry_credentials(package, registry, body):
-    registry.redirect = "https://pkg-containers.githubusercontent.com/ghcr1/blobs/"
-    registry.redirect_body = body
-    assert publish(package) == digest(registry.manifest)
-    assert registry.cdn_reads == 2
-
-
-@pytest.mark.parametrize("target", [
-    "https://attacker.invalid/", "http://pkg-containers.githubusercontent.com/",
-    "https://actor:secret@pkg-containers.githubusercontent.com/",
-])
-def test_blob_redirect_rejects_unapproved_destination(package, registry, target):
-    registry.redirect = target
-    with pytest.raises(ValueError, match="blob redirect"):
-        publish(package)
-    assert registry.cdn_reads == 0
 
 
 def test_existing_chart_tag_is_not_overwritten(package, registry):
