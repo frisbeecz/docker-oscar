@@ -15,7 +15,9 @@ artifacts must not be overwritten as a recovery mechanism.
 4. Create a prerelease containing the corresponding-source/license files.
    Verify their public availability/checksums before distributing binaries.
 5. Copy both tested OCI archives with Skopeo `--preserve-digests`, create the
-   image index with Buildx, and upload the already tested chart package.
+   GHCR image index with Buildx, mirror that exact index and both platforms to
+   Docker Hub using Skopeo `--all --preserve-digests`, and upload the already
+   tested chart package to GHCR.
    Nothing is rebuilt or repackaged during publication.
 6. Save/upload `release-manifest.json`, then perform one final distribution
    check using Skopeo and `helm pull`. Only success makes the prerelease final.
@@ -24,6 +26,11 @@ Main/PR CI does not publish. Only the trusted tag publish job has
 `contents: write` and `packages: write`. Tokens are passed through environment
 or stdin, never command-line arguments. Temporary registry credentials are
 isolated and cleaned up.
+
+The publish step also requires repository secret `DOCKERHUB_TOKEN`, with push
+access as `frisbeecz24` to `frisbeecz24/frisbeecz`. It is not exposed to CI,
+checkout or dependency installation. See [distribution setup](distribution.md)
+for Docker Hub prerequisites and one-time Artifact Hub registration.
 
 ## What is checked
 
@@ -40,11 +47,17 @@ from the trusted job environment, plus artifact/source/platform digests.
 `jobUrls` remains an empty object for format compatibility; individual job
 results are available through the linked GitHub run.
 
-The final check reads the image index/platform manifests with Skopeo and checks
-them against the tested identities. Helm downloads the chart, handles registry
+The final check reads the GHCR image index/platform manifests with Skopeo and
+checks them against the tested identities. It also anonymously reads the
+Docker Hub version tag: its raw index digest must be identical to GHCR,
+including both platform descriptors. Helm downloads the chart, handles registry
 CDN redirects itself, and the package checksum must match the tested archive.
 Skopeo checks the tagged chart manifest digest. Source downloads are checked
 once, before the binary uploads, rather than downloaded again at the end.
+New manifests record `dockerHubRepository`; the same `imageIndexDigest` applies
+to both registries. Saved older manifests without this optional field still
+verify GHCR only. Artifact Hub indexing is asynchronous and is not a release
+publication gate.
 
 The small `ci.chart_registry` uploader remains because the original Helm push
 failed while reading an untagged manifest. It uploads the Helm config/chart

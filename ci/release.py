@@ -26,6 +26,7 @@ from ci.runtime import REQUIRED_CHECKS, TEST_SCOPE, validate_checks, validate_pr
 REPO = "frisbeecz/docker-oscar"
 REGISTRY = "ghcr.io/frisbeecz"
 IMAGE = REGISTRY + "/docker-oscar"
+DOCKERHUB_IMAGE = "docker.io/frisbeecz24/frisbeecz"
 DIGEST = r"sha256:[a-f0-9]{64}"
 
 
@@ -192,6 +193,8 @@ def publish(artifacts, commit, registry, *, project=ROOT):
                     runUrl=f"https://github.com/{REPO}/actions/runs/{run_id}", jobUrls={})
     token = os.environ.get("GH_TOKEN")
     require(bool(token), "job-scoped GH_TOKEN required")
+    dockerhub_token = os.environ.get("DOCKERHUB_TOKEN")
+    require(bool(dockerhub_token and dockerhub_token.strip()), "DOCKERHUB_TOKEN required")
     username = os.environ.get("GITHUB_ACTOR", "")
     require(bool(re.fullmatch(r"[A-Za-z0-9-]+(?:\[bot\])?", username)), "invalid publishing actor")
     tools = load_lock("ci/tools.lock.json", project=project)
@@ -215,6 +218,8 @@ def publish(artifacts, commit, registry, *, project=ROOT):
                 "isolated publication config lost the pinned Buildx plugin")
         mutate(["skopeo", "login", "--authfile", auth, "--username", username,
                 "--password-stdin", "ghcr.io"], input=token, text=True)
+        mutate(["skopeo", "login", "--authfile", auth, "--username", "frisbeecz24",
+                "--password-stdin", "docker.io"], input=dockerhub_token, text=True)
         mutate(["docker", "--config", docker, "login", "ghcr.io", "--username", username,
                 "--password-stdin"], input=token, text=True)
         for arch, platform in manifest["platforms"].items():
@@ -228,6 +233,10 @@ def publish(artifacts, commit, registry, *, project=ROOT):
         raw = run(["skopeo", "inspect", "--raw", "--authfile", auth,
                    "docker://" + IMAGE + ":" + manifest["imageTag"]], capture_output=True).stdout
         manifest["imageIndexDigest"] = "sha256:" + hashlib.sha256(raw).hexdigest()
+        mutate(["skopeo", "copy", "--all", "--preserve-digests", "--authfile", auth,
+                "docker://" + IMAGE + "@" + manifest["imageIndexDigest"],
+                "docker://" + DOCKERHUB_IMAGE + ":" + manifest["imageTag"]])
+        manifest["dockerHubRepository"] = DOCKERHUB_IMAGE
         chart = manifest["charts"]["4.3.2"]
         manifest["chartDigest"] = publish_chart(
             chart["path"], sha256=chart["sha256"], version=manifest["chartVersion"],
@@ -253,6 +262,9 @@ def verify_published(path):
     validate_tag(manifest["releaseTag"], manifest["chartVersion"])
     require(manifest.get("chartReference") == REGISTRY + "/charts/oscar:" + manifest["chartVersion"],
             "unapproved chart reference")
+    mirror = manifest.get("dockerHubRepository")
+    require("dockerHubRepository" not in manifest or mirror == DOCKERHUB_IMAGE,
+            "unapproved Docker Hub repository")
     for digest in [manifest.get("imageIndexDigest", ""), manifest.get("chartDigest", ""),
                    *(p.get("manifestDigest", "") for p in manifest["platforms"].values())]:
         require(bool(re.fullmatch(DIGEST, digest)), "invalid publication digest")
@@ -260,6 +272,11 @@ def verify_published(path):
                   capture_output=True).stdout
     require("sha256:" + hashlib.sha256(tag_raw).hexdigest() == manifest["imageIndexDigest"],
             "published image tag points to a different index")
+    if mirror:
+        mirror_raw = run(["skopeo", "inspect", "--raw", "docker://" + mirror + ":" + manifest["imageTag"]],
+                         capture_output=True).stdout
+        require("sha256:" + hashlib.sha256(mirror_raw).hexdigest() == manifest["imageIndexDigest"],
+                "Docker Hub image tag points to a different index")
     index = json.loads(tag_raw)
     require(len(index["manifests"]) == 2 and all(d["platform"]["os"] == "linux"
             for d in index["manifests"]), "index must contain exactly two Linux platform manifests")

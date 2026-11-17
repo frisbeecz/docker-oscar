@@ -4,9 +4,26 @@ description: Persistent singleton OSCAR desktop over Selkies
 type: application
 version: 1.0.1
 appVersion: "2.1.1"
+keywords:
+  - oscar
+  - cpap
+  - sleep-apnea
+  - selkies
+maintainers:
+  - name: frisbeecz
+    url: https://github.com/frisbeecz
 home: https://github.com/frisbeecz/docker-oscar
 sources:
   - https://github.com/frisbeecz/docker-oscar
   - https://gitlab.com/CrimsonNape/OSCAR-SQL
 annotations:
   licenses: Apache-2.0
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: web-applications
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/frisbeecz/docker-oscar/blob/main/docs/chart.md
+    - name: Source
+      url: https://github.com/frisbeecz/docker-oscar
+    - name: support
+      url: https://github.com/frisbeecz/docker-oscar/issues

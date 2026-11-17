@@ -63,6 +63,26 @@ def test_minimal_job_permissions():
             assert not job.get("continue-on-error", False)
 
 
+def test_dockerhub_secret_is_scoped_to_trusted_publish_step():
+    """A build, PR job or dependency installer must never receive the registry token."""
+    ws = workflows()
+    assert "DOCKERHUB_TOKEN" not in ws["release"].get("env", {})
+    consumers = []
+    for name, workflow in ws.items():
+        for key, job in workflow["jobs"].items():
+            assert "DOCKERHUB_TOKEN" not in job.get("env", {})
+            for step in job.get("steps", []):
+                value = step.get("env", {}).get("DOCKERHUB_TOKEN")
+                if value is not None:
+                    consumers.append((name, key, step))
+    assert len(consumers) == 1
+    name, key, step = consumers[0]
+    assert (name, key) == ("release", "publish")
+    assert step["env"]["DOCKERHUB_TOKEN"] == "${{ secrets.DOCKERHUB_TOKEN }}"
+    assert "ci.release publish " in step["run"]
+    assert not step.get("if")
+
+
 def test_release_dependency_closure():
     ws = workflows()
     jobs = ws["release"]["jobs"]

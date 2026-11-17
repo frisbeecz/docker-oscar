@@ -318,6 +318,7 @@ def publication(evidence, monkeypatch):
         "GITHUB_REPOSITORY": "frisbeecz/docker-oscar", "GITHUB_SHA": commit,
         "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_ACTOR": "frisbeecz", "GH_TOKEN": "synthetic-not-a-token",
+        "DOCKERHUB_TOKEN": "synthetic-dockerhub-token",
     }.items():
         monkeypatch.setenv(key, value)
     commands, events = [], []
@@ -327,7 +328,7 @@ def publication(evidence, monkeypatch):
         {"platform": {"architecture": a, "os": "linux"}, "digest": p["manifestDigest"]}
         for a, p in identity.items()]}).encode()
     chart_raw = b'{"schemaVersion":2,"artifactType":"application/vnd.cncf.helm.config.v1+json"}'
-    state = {"index": index, "chart": chart_raw, "tag": index}
+    state = {"index": index, "chart": chart_raw, "tag": index, "dockerhub": index}
     original_run = release.run
     def server_run(command, **kwargs):
         argv = [str(c) for c in command]
@@ -335,7 +336,9 @@ def publication(evidence, monkeypatch):
             return original_run(argv, **kwargs)
         assert argv[:3] == ["skopeo", "inspect", "--raw"], argv
         ref = argv[-1]
-        if "/charts/oscar:" in ref:
+        if ref.startswith("docker://docker.io/frisbeecz24/frisbeecz:"):
+            raw = state["dockerhub"]
+        elif "/charts/oscar:" in ref:
             raw = state["chart"]
         elif ref.endswith(":2.1.1-r6"):
             raw = state["tag"]
@@ -387,7 +390,8 @@ def test_publish_sources_first_preserves_digests_and_never_rebuilds(publication)
     assert events[0] == "gh release create"
     assert events.index("anonymous source read") < events.index("skopeo login --authfile")
     copies = [c for c in commands if c[:2] == ["skopeo", "copy"]]
-    assert len(copies) == 2 and all("--preserve-digests" in c for c in copies)
+    archives = [c for c in copies if c[-2].startswith("oci-archive:")]
+    assert len(archives) == 2 and all("--preserve-digests" in c for c in copies)
     assert not any("build" in c or "package" in c for c in commands)
     assert commands[-1][:3] == ["gh", "release", "edit"]
     assert result["imageIndexDigest"].startswith("sha256:")
@@ -395,6 +399,95 @@ def test_publish_sources_first_preserves_digests_and_never_rebuilds(publication)
     assert result["testScope"] == "startup-smoke-v1"
     assert json.loads((directory / "release-manifest.json").read_text())["gitCommit"] == commit
     assert all("synthetic-not-a-token" not in " ".join(c) for c in commands)
+    assert all("synthetic-dockerhub-token" not in " ".join(c) for c in commands)
+
+
+def test_dockerhub_mirror_copies_complete_tested_index_by_digest(publication, monkeypatch):
+    """Dropping --all or using a mutable GHCR tag must not silently mirror one platform."""
+    release, project, directory, commit, commands, _, state = publication
+    original = release.mutate
+    logins = []
+    def boundary(command, **kwargs):
+        argv = list(map(str, command))
+        if argv[:2] == ["skopeo", "login"] and argv[-1] == "docker.io":
+            assert argv[argv.index("--username") + 1] == "frisbeecz24"
+            assert "--password-stdin" in argv
+            assert kwargs.get("input") == "synthetic-dockerhub-token"
+            auth = Path(argv[argv.index("--authfile") + 1])
+            assert auth.parent.parent == directory
+            assert auth.parent.stat().st_mode & 0o777 == 0o700
+            logins.append(auth)
+        return original(command, **kwargs)
+    monkeypatch.setattr(release, "mutate", boundary)
+    result = release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    index_digest = "sha256:" + hashlib.sha256(state["index"]).hexdigest()
+    mirrors = [c for c in commands if c[:2] == ["skopeo", "copy"]
+               and c[-1] == "docker://docker.io/frisbeecz24/frisbeecz:2.1.1-r6"]
+    assert len(mirrors) == 1 and len(logins) == 1
+    assert "--all" in mirrors[0] and "--preserve-digests" in mirrors[0]
+    assert mirrors[0][-2] == "docker://ghcr.io/frisbeecz/docker-oscar@" + index_digest
+    assert Path(mirrors[0][mirrors[0].index("--authfile") + 1]) == logins[0]
+    assert not logins[0].parent.exists(), "temporary registry credentials were not cleaned up"
+    assert result["dockerHubRepository"] == "docker.io/frisbeecz24/frisbeecz"
+    saved = json.loads((directory / "release-manifest.json").read_text())
+    assert saved["dockerHubRepository"] == result["dockerHubRepository"]
+    assert saved["imageIndexDigest"] == index_digest
+
+
+def test_missing_dockerhub_token_stops_before_external_writes(publication, monkeypatch):
+    release, project, directory, commit, commands, _, _ = publication
+    monkeypatch.delenv("DOCKERHUB_TOKEN")
+    with pytest.raises(ValueError, match="DOCKERHUB_TOKEN"):
+        release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    assert commands == []
+
+
+@pytest.mark.parametrize("failure", ["login", "copy", "readback"])
+def test_dockerhub_failure_does_not_retry_or_finalize(publication, monkeypatch, failure):
+    release, project, directory, commit, commands, _, state = publication
+    original = release.mutate
+    failures = []
+    def boundary(command, **kwargs):
+        argv = list(map(str, command))
+        result = original(command, **kwargs)
+        if ((failure == "login" and argv[:2] == ["skopeo", "login"] and argv[-1] == "docker.io")
+                or (failure == "copy" and argv[:2] == ["skopeo", "copy"]
+                    and argv[-1].startswith("docker://docker.io/"))):
+            failures.append(argv)
+            raise subprocess.CalledProcessError(1, argv, stderr="synthetic registry failure")
+        return result
+    monkeypatch.setattr(release, "mutate", boundary)
+    if failure == "readback":
+        state["dockerhub"] = b'{"schemaVersion":2,"manifests":[]}'
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    assert len(failures) == (0 if failure == "readback" else 1)
+    assert not any(c[:3] == ["gh", "release", "edit"] for c in commands)
+
+
+def test_verify_saved_ghcr_only_manifest_remains_supported(publication):
+    release, project, directory, commit, _, _, state = publication
+    release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    path = directory / "release-manifest.json"
+    data = json.loads(path.read_text())
+    data.pop("dockerHubRepository")
+    dump(path, data)
+    state["dockerhub"] = b"must not be read for a pre-mirror manifest"
+    assert release.verify_published(path)["imageRepository"] == "ghcr.io/frisbeecz/docker-oscar"
+
+
+def test_unapproved_mirror_repository_is_rejected_before_external_reads(publication, monkeypatch):
+    release, project, directory, commit, _, _, _ = publication
+    release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    path = directory / "release-manifest.json"
+    data = json.loads(path.read_text())
+    data["dockerHubRepository"] = "docker.io/unapproved/repository"
+    dump(path, data)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("external access before repository validation")
+    monkeypatch.setattr(release, "run", forbidden)
+    with pytest.raises(ValueError, match="repository"):
+        release.verify_published(path)
 
 
 def test_publish_uses_workflow_gate_without_separate_job_evidence(publication):

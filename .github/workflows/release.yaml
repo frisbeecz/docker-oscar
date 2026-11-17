@@ -71,4 +71,6 @@ jobs:
             echo "$GITHUB_WORKSPACE/.venv/tools/bin"
           } >> "$GITHUB_PATH"
       - name: Publish tested artifacts and verify distribution once
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: python3 -m ci.release publish --artifacts artifacts --commit "$GITHUB_SHA" --registry ghcr.io/frisbeecz
