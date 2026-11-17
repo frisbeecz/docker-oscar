@@ -140,7 +140,7 @@ def verify(artifacts, commit, *, project=ROOT):
     expected_sha = hashlib.sha256(expected).hexdigest()
     verify_sources(source, commit, locked, expected_sha)
     return {"schemaVersion": 1, "gitCommit": commit, "testScope": TEST_SCOPE,
-            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r5",
+            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r6",
             "chartVersion": chart["version"], "platforms": platforms, "charts": packages,
              "sources": {p.name: sha256_file(p) for p in sorted(source.iterdir()) if p.is_file()}}
 

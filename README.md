@@ -9,8 +9,8 @@ The project provides:
 - **A browser-accessible desktop** powered by Selkies, Wayland and
   WebSocket/WebCodecs streaming.
 - **AMD64 and ARM64 image targets** using official OSCAR **2.1.1** Debian13
-  Qt6 packages on LinuxServer's Debian13 Selkies base. The current image revision is
-  **2.1.1-r5**.
+  Qt6 packages on LinuxServer's Debian13 Selkies base. The current image build revision is
+  **2.1.1-r6**.
 - **A Kubernetes Helm chart** with configurable storage, resources, Ingress
   and Gateway API routing.
 - **Persistent profiles and settings**, with separate volumes for application
@@ -37,7 +37,8 @@ If your installation provides the standalone `docker-compose` executable
 instead, substitute it for `docker compose` in these commands.
 
 The included [`compose.yaml`](compose.yaml) creates three persistent named
-volumes and binds **only to 127.0.0.1**. This local example has no login configured:
+volumes and binds **only to 127.0.0.1**. It intentionally remains pinned to
+the published **2.1.1-r5** image by immutable digest, not the current r6 build. This local example has no login configured:
 do not change it to a public listener without an authenticated HTTPS proxy.
 
 To import a copy of an SD card:
@@ -80,7 +81,7 @@ volume.
 
 ## Verification scope
 
-[Release v0.1.4](https://github.com/frisbeecz/docker-oscar/releases/tag/v0.1.4)
+[The v0.1.4 Actions run](https://github.com/frisbeecz/docker-oscar/actions/runs/44067963403)
 passed native AMD64/ARM64 `startup-smoke-v1` and both Helm validation matrices.
 The startup smoke requires a running container, HTTP200 and the same
 unprivileged OSCAR process for at least 10 seconds. It is not a full GUI,
