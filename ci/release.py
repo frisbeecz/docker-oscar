@@ -21,12 +21,14 @@ from ci import (ROOT, CLEAN_DIFF_SHA256, load_lock, output, run, sha256_file,
 from ci.build_image import inspect_oci
 from ci.chart import matrix as chart_matrix
 from ci.chart_registry import publish_chart
+from ci.dockerhub import update_metadata as update_dockerhub_metadata
 from ci.runtime import REQUIRED_CHECKS, TEST_SCOPE, validate_checks, validate_process
 
 REPO = "frisbeecz/docker-oscar"
 REGISTRY = "ghcr.io/frisbeecz"
 IMAGE = REGISTRY + "/docker-oscar"
-DOCKERHUB_IMAGE = "docker.io/frisbeecz24/frisbeecz"
+DOCKERHUB_IMAGE = "docker.io/frisbeecz24/docker-oscar"
+LEGACY_DOCKERHUB_IMAGE = "docker.io/frisbeecz24/frisbeecz"
 DIGEST = r"sha256:[a-f0-9]{64}"
 
 
@@ -233,6 +235,7 @@ def publish(artifacts, commit, registry, *, project=ROOT):
         raw = run(["skopeo", "inspect", "--raw", "--authfile", auth,
                    "docker://" + IMAGE + ":" + manifest["imageTag"]], capture_output=True).stdout
         manifest["imageIndexDigest"] = "sha256:" + hashlib.sha256(raw).hexdigest()
+        update_dockerhub_metadata(token=dockerhub_token, project=project)
         mutate(["skopeo", "copy", "--all", "--preserve-digests", "--authfile", auth,
                 "docker://" + IMAGE + "@" + manifest["imageIndexDigest"],
                 "docker://" + DOCKERHUB_IMAGE + ":" + manifest["imageTag"]])
@@ -263,7 +266,7 @@ def verify_published(path):
     require(manifest.get("chartReference") == REGISTRY + "/charts/oscar:" + manifest["chartVersion"],
             "unapproved chart reference")
     mirror = manifest.get("dockerHubRepository")
-    require("dockerHubRepository" not in manifest or mirror == DOCKERHUB_IMAGE,
+    require("dockerHubRepository" not in manifest or mirror in {DOCKERHUB_IMAGE, LEGACY_DOCKERHUB_IMAGE},
             "unapproved Docker Hub repository")
     for digest in [manifest.get("imageIndexDigest", ""), manifest.get("chartDigest", ""),
                    *(p.get("manifestDigest", "") for p in manifest["platforms"].values())]:

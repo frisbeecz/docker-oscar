@@ -6,10 +6,13 @@ is a discovery catalog, not another chart registry.
 
 ## Docker Hub setup
 
-1. Use the Docker Hub account **`frisbeecz24`** and create a **public** repository
-   named **`frisbeecz`**. Check that its image-version tags do not conflict with
-   any existing content. The pipeline does not change repository visibility.
-2. Create a Docker Hub access token with permission to push to that repository.
+1. Use the Docker Hub account **`frisbeecz24`** and repository
+   **`docker-oscar`**. The metadata synchronization creates this public repository
+   if absent, but refuses to change an existing private repository's visibility.
+2. Create a Docker Hub personal access token with permission to push images
+   and manage repository information. Registry push permission alone does not
+   prove that metadata/category updates are authorized; a denial stops the job
+   without changing token scopes or retrying.
 3. Store it as a GitHub Actions repository secret. Run this in your own terminal
    and paste the token at the interactive prompt, not into the command itself:
 
@@ -20,7 +23,8 @@ is a discovery catalog, not another chart registry.
    Never commit the token, put it in Helm/Compose values, or send it in an issue.
    Local `docker login` does not configure GitHub Actions.
 
-Only the trusted release publish step receives the secret. Missing credentials
+Only the trusted release publish step and the final step of the explicitly
+dispatched main-branch maintenance job receive the secret. Missing credentials
 stop publication before external writes. Existing job-scoped `GH_TOKEN` still
 authenticates GHCR and GitHub Releases.
 
@@ -32,7 +36,10 @@ and the corresponding-source availability check:
 - Existing tested AMD64/ARM64 artifacts are published to GHCR.
 - Skopeo copies the complete image index from its **digest reference**, with
   `--all --preserve-digests`, to
-  `docker.io/frisbeecz24/frisbeecz:<image-tag>`.
+  `docker.io/frisbeecz24/docker-oscar:<image-tag>`.
+- The Docker Hub description, [repository overview](dockerhub.md) and
+  **Data science** category are synchronized through the Hub API. The overview
+  uses absolute GitHub documentation links suitable for Docker Hub.
 - Nothing is rebuilt, and no `latest` tag is created.
 - The final anonymous read checks that the Docker Hub tag has the same index
   digest as GHCR before the GitHub prerelease is finalized.
@@ -42,8 +49,8 @@ and the corresponding-source availability check:
 Use the recorded image tag or digest when pulling from Docker Hub:
 
 ```text
-docker pull frisbeecz24/frisbeecz:<image-tag>
-docker pull frisbeecz24/frisbeecz@sha256:<image-index-digest>
+docker pull frisbeecz24/docker-oscar:<image-tag>
+docker pull frisbeecz24/docker-oscar@sha256:<image-index-digest>
 ```
 
 Replace the placeholders with values from an actually verified release.
@@ -54,6 +61,29 @@ Use fresh image/chart versions for each new release. Publishing across
 registries is not atomic: a failure can leave a prerelease or some artifacts
 uploaded. There is no automatic retry, tag replacement or cleanup recovery.
 Do not rerun an old release to overwrite published content.
+
+## Copy the existing v1.0.2 image to the corrected repository
+
+After this workflow is available on `main`, an authorized operator can run:
+
+```sh
+gh workflow run dockerhub.yaml --repo frisbeecz/docker-oscar --ref main
+```
+
+**Docker Hub maintenance** accepts no image/repository inputs. It copies exactly
+the already published `2.1.1-r7` AMD64/ARM64 index from GHCR digest
+`sha256:386ff28089d399c1305f42cb811a53ce9c9ac18695981888fb13094d348fad0f`
+to `frisbeecz24/docker-oscar:2.1.1-r7`, without rebuilding or publishing a new
+release/chart. It also synchronizes the description, overview and category.
+A matching destination tag is reused; a conflicting existing tag stops the
+workflow without overwriting it. Anonymous digest readback verifies the copy.
+
+The former `frisbeecz24/frisbeecz` repository and published release manifests
+remain intact. Saved manifests referring to that original destination remain
+supported by `verify-published`; all new releases use `docker-oscar`.
+No old image, tag, GitHub release, Compose pin or K3s deployment is removed or
+rewritten. Repository metadata and image copying are not an atomic transaction;
+a failed copy may leave the new repository and its overview already created.
 
 ## Register the chart with Artifact Hub
 

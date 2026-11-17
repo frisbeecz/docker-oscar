@@ -28,7 +28,8 @@ or stdin, never command-line arguments. Temporary registry credentials are
 isolated and cleaned up.
 
 The publish step also requires repository secret `DOCKERHUB_TOKEN`, with push
-access as `frisbeecz24` to `frisbeecz24/frisbeecz`. It is not exposed to CI,
+access as `frisbeecz24` to `frisbeecz24/docker-oscar` and permission to manage
+that repository's information. It is not exposed to CI,
 checkout or dependency installation. See [distribution setup](distribution.md)
 for Docker Hub prerequisites and one-time Artifact Hub registration.
 

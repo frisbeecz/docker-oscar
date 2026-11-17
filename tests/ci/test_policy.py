@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def workflows():
-    paths = [ROOT / ".github/workflows" / f"{name}.yaml" for name in ("ci", "release")]
-    assert all(p.is_file() for p in paths), "required workflows missing"
+    paths = sorted((ROOT / ".github/workflows").glob("*.yaml"))
+    assert {"ci", "release", "dockerhub"} <= {p.stem for p in paths}, "required workflows missing"
     return {p.stem: yaml.safe_load(p.read_text()) for p in paths}
 
 
@@ -66,7 +66,7 @@ def test_minimal_job_permissions():
 def test_dockerhub_secret_is_scoped_to_trusted_publish_step():
     """A build, PR job or dependency installer must never receive the registry token."""
     ws = workflows()
-    assert "DOCKERHUB_TOKEN" not in ws["release"].get("env", {})
+    assert all("DOCKERHUB_TOKEN" not in w.get("env", {}) for w in ws.values())
     consumers = []
     for name, workflow in ws.items():
         for key, job in workflow["jobs"].items():
@@ -75,12 +75,27 @@ def test_dockerhub_secret_is_scoped_to_trusted_publish_step():
                 value = step.get("env", {}).get("DOCKERHUB_TOKEN")
                 if value is not None:
                     consumers.append((name, key, step))
-    assert len(consumers) == 1
-    name, key, step = consumers[0]
-    assert (name, key) == ("release", "publish")
-    assert step["env"]["DOCKERHUB_TOKEN"] == "${{ secrets.DOCKERHUB_TOKEN }}"
-    assert "ci.release publish " in step["run"]
-    assert not step.get("if")
+    assert {(name, key) for name, key, _ in consumers} == {
+        ("release", "publish"), ("dockerhub", "migrate")}
+    assert len(consumers) == 2
+    for name, key, step in consumers:
+        assert step["env"]["DOCKERHUB_TOKEN"] == "${{ secrets.DOCKERHUB_TOKEN }}"
+        assert not step.get("if")
+        assert step is ws[name]["jobs"][key]["steps"][-1]
+        if name == "release":
+            assert "ci.release publish " in step["run"]
+        else:
+            assert step["run"] == ".venv/bin/python -m ci.dockerhub migrate-v102"
+
+
+def test_dockerhub_migration_requires_explicit_main_branch_dispatch():
+    wf = workflows()["dockerhub"]
+    assert set(wf.get("on", wf.get(True))) == {"workflow_dispatch"}
+    job = wf["jobs"]["migrate"]
+    assert job["if"] == ("github.repository == 'frisbeecz/docker-oscar' "
+                         "&& github.ref == 'refs/heads/main'")
+    assert job["permissions"] == {"contents": "read"}
+    assert not job.get("env") and not job.get("secrets")
 
 
 def test_release_dependency_closure():
@@ -138,7 +153,7 @@ def test_publication_inputs_are_data():
     assert len(downloads) == 3 and all(i < publish for i in downloads)
 
 
-@pytest.mark.parametrize("workflow", ["ci", "release"])
+@pytest.mark.parametrize("workflow", ["ci", "release", "dockerhub"])
 def test_no_hidden_failure_or_cross_run_download(workflow):
     for job in workflows()[workflow]["jobs"].values():
         for step in job.get("steps", []):

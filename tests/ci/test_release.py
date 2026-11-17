@@ -336,7 +336,8 @@ def publication(evidence, monkeypatch):
             return original_run(argv, **kwargs)
         assert argv[:3] == ["skopeo", "inspect", "--raw"], argv
         ref = argv[-1]
-        if ref.startswith("docker://docker.io/frisbeecz24/frisbeecz:"):
+        if ref.startswith(("docker://docker.io/frisbeecz24/docker-oscar:",
+                           "docker://docker.io/frisbeecz24/frisbeecz:")):
             raw = state["dockerhub"]
         elif "/charts/oscar:" in ref:
             raw = state["chart"]
@@ -378,6 +379,10 @@ def publication(evidence, monkeypatch):
     monkeypatch.setattr(release, "output", server_output)
     monkeypatch.setattr(release, "mutate", server_mutate)
     monkeypatch.setattr(release, "urlopen", public_fetch)
+    def metadata(**kwargs):
+        assert kwargs == {"token": "synthetic-dockerhub-token", "project": project}
+        events.append("Docker Hub metadata")
+    monkeypatch.setattr(release, "update_dockerhub_metadata", metadata, raising=False)
     # Protocol and native Helm compatibility are exercised in test_chart_registry.
     monkeypatch.setattr(release, "publish_chart",
                         lambda *args, **kwargs: "sha256:" + hashlib.sha256(state["chart"]).hexdigest())
@@ -404,7 +409,7 @@ def test_publish_sources_first_preserves_digests_and_never_rebuilds(publication)
 
 def test_dockerhub_mirror_copies_complete_tested_index_by_digest(publication, monkeypatch):
     """Dropping --all or using a mutable GHCR tag must not silently mirror one platform."""
-    release, project, directory, commit, commands, _, state = publication
+    release, project, directory, commit, commands, events, state = publication
     original = release.mutate
     logins = []
     def boundary(command, **kwargs):
@@ -422,16 +427,17 @@ def test_dockerhub_mirror_copies_complete_tested_index_by_digest(publication, mo
     result = release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
     index_digest = "sha256:" + hashlib.sha256(state["index"]).hexdigest()
     mirrors = [c for c in commands if c[:2] == ["skopeo", "copy"]
-               and c[-1] == "docker://docker.io/frisbeecz24/frisbeecz:2.1.1-r7"]
+               and c[-1] == "docker://docker.io/frisbeecz24/docker-oscar:2.1.1-r7"]
     assert len(mirrors) == 1 and len(logins) == 1
     assert "--all" in mirrors[0] and "--preserve-digests" in mirrors[0]
     assert mirrors[0][-2] == "docker://ghcr.io/frisbeecz/docker-oscar@" + index_digest
     assert Path(mirrors[0][mirrors[0].index("--authfile") + 1]) == logins[0]
     assert not logins[0].parent.exists(), "temporary registry credentials were not cleaned up"
-    assert result["dockerHubRepository"] == "docker.io/frisbeecz24/frisbeecz"
+    assert result["dockerHubRepository"] == "docker.io/frisbeecz24/docker-oscar"
     saved = json.loads((directory / "release-manifest.json").read_text())
     assert saved["dockerHubRepository"] == result["dockerHubRepository"]
     assert saved["imageIndexDigest"] == index_digest
+    assert events.count("Docker Hub metadata") == 1
 
 
 def test_missing_dockerhub_token_stops_before_external_writes(publication, monkeypatch):
@@ -474,6 +480,28 @@ def test_verify_saved_ghcr_only_manifest_remains_supported(publication):
     dump(path, data)
     state["dockerhub"] = b"must not be read for a pre-mirror manifest"
     assert release.verify_published(path)["imageRepository"] == "ghcr.io/frisbeecz/docker-oscar"
+
+
+def test_verify_saved_original_dockerhub_repository_remains_supported(publication):
+    release, project, directory, commit, _, _, _ = publication
+    release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    path = directory / "release-manifest.json"
+    data = json.loads(path.read_text())
+    data["dockerHubRepository"] = "docker.io/frisbeecz24/frisbeecz"
+    dump(path, data)
+    assert release.verify_published(path)["dockerHubRepository"] == data["dockerHubRepository"]
+
+
+def test_metadata_failure_stops_publication_without_finalizing(publication, monkeypatch):
+    release, project, directory, commit, commands, _, _ = publication
+    def denied(**kwargs):
+        raise ValueError("Docker Hub PATCH: HTTP 403")
+    monkeypatch.setattr(release, "update_dockerhub_metadata", denied)
+    with pytest.raises(ValueError, match="HTTP 403"):
+        release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
+    assert not any(c[:3] == ["gh", "release", "edit"] for c in commands)
+    assert not any(c[:2] == ["skopeo", "copy"] and c[-1].startswith("docker://docker.io/")
+                   for c in commands)
 
 
 def test_unapproved_mirror_repository_is_rejected_before_external_reads(publication, monkeypatch):
