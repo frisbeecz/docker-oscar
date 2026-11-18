@@ -1,6 +1,6 @@
 # Production Alpine migration
 
-Status: proposed specification — awaiting user review.
+Status: approved in conversation on 2026-11-18, with the clarification below.
 
 ## Intent and approval boundary
 
@@ -9,14 +9,16 @@ promote the tested Alpine build to main; if verification succeeds, publish a
 new release; only after successful publication, deploy it to K3s.
 
 This specification covers that production migration, not further vulnerability
-remediation. Implementation and its execution plan require approval of this
-written specification first. Existing unrelated edits must remain untouched.
+remediation. The user approved the proposal after clarifying that native checks
+mean minimal checks of the final image on real AMD64/ARM64, not repeating the
+whole experiment or testing patient data. The implementation plan and execution
+selection still require approval. Existing unrelated edits must remain untouched.
 
 Design gates:
 
 - [x] Review the experiment, production build/provenance and current K3s state.
 - [x] Write and self-review this proposed specification.
-- [ ] User approval of the written specification.
+- [x] User approval of the written specification and minimal-test clarification.
 - [ ] Write the implementation plan; obtain approval and execution selection.
 - [ ] Execute the approved migration with recorded verification.
 
