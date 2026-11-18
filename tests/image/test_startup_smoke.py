@@ -1,4 +1,4 @@
-"""Real startup orchestration, with only Docker, HTTP and time controlled."""
+"""Real container-functional orchestration, with Docker, HTTP and time controlled."""
 import copy
 import builtins
 import json
@@ -49,10 +49,18 @@ def host(tmp_path, monkeypatch):
     def docker_run(command, **kwargs):
         calls.append((now[0], command))
         assert command[:2] in (["docker", "volume"], ["docker", "create"],
-                               ["docker", "start"], ["docker", "rm"])
+                               ["docker", "start"], ["docker", "rm"], ["docker", "restart"])
         if command[:2] == ["docker", "rm"] and state["cleanupFailure"]:
             raise RuntimeError("synthetic cleanup failure")
     def logs(command, **kwargs):
+        if command[:2] == ["docker", "exec"]:
+            from ci import runtime_checks
+            assert kwargs["input"] == runtime_checks.CHECK
+            calls.append((now[0], command))
+            phase = command[8]
+            checks = ({"unprivileged": True, "sdcardReadOnly": True, "uploadRoundTrip": True,
+                       "watchdogRestart": True} if phase == "initial" else {"dataRetained": True})
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(checks) + "\n")
         assert command[:2] == ["docker", "logs"]
         return subprocess.CompletedProcess(command, 0, stdout=b"synthetic log", stderr=b"")
     class Response:
@@ -67,6 +75,8 @@ def host(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("GUI, audit or functional helper called by startup smoke")
     monkeypatch.setattr(runtime, "output", docker_output)
+    from ci import runtime_checks
+    monkeypatch.setattr(runtime_checks, "output", docker_output)
     monkeypatch.setattr(runtime, "run", docker_run)
     monkeypatch.setattr(runtime.subprocess, "run", logs)
     monkeypatch.setattr(runtime, "require_native", lambda *a, **kw: "amd64")
@@ -83,7 +93,7 @@ def host(tmp_path, monkeypatch):
     return state, now, calls, argv, tmp_path, build, image
 
 
-def test_normal_cli_waits_for_same_process_without_functional_helpers(host, monkeypatch):
+def test_normal_cli_observes_then_checks_upload_watchdog_and_retention_without_gui(host, monkeypatch):
     state, now, calls, argv, folder, build, _ = host
     state["processes"] = lambda t: [] if t < 4 else [copy.deepcopy(PROCESS)]
     state["http"] = [ConnectionResetError("startup reset"), 503, 200]
@@ -96,16 +106,20 @@ def test_normal_cli_waits_for_same_process_without_functional_helpers(host, monk
     runtime.main(argv)
     result = json.loads((folder / "runtime-amd64.json").read_text())
     assert result["exitCode"] == 0
-    assert result["testScope"] == "startup-smoke-v1"
-    assert result["checks"] == {"containerRunning": True, "httpReady": True, "oscarStable": True}
+    assert result["testScope"] == "container-functional-v1"
+    assert result["checks"] == dict.fromkeys({
+        "containerRunning", "httpReady", "oscarStable", "unprivileged", "uploadRoundTrip",
+        "watchdogRestart", "dataRetained", "sdcardReadOnly"}, True)
     assert result["process"] == PROCESS
     assert result["durationSeconds"] == 10
     assert now[0] == 14
-    samples = [t for t, cmd in calls if cmd[:2] == ["docker", "exec"]]
+    samples = [t for t, cmd in calls if cmd[-1] == runtime.PROCESS_SCRIPT]
     assert samples == list(range(2, 15))
     assert all(cmd[2:4] == ["--user", "1234:2345"]
                for _, cmd in calls if cmd[:2] == ["docker", "exec"])
     assert len([cmd for _, cmd in calls if cmd[:2] == ["docker", "create"]]) == 1
+    assert len([cmd for _, cmd in calls if cmd[:2] == ["docker", "restart"]]) == 1
+    assert len([cmd for _, cmd in calls if cmd[:2] == ["docker", "exec"] and cmd[-1] != runtime.PROCESS_SCRIPT]) == 2
     assert len([cmd for _, cmd in calls if cmd[:2] == ["docker", "rm"]]) == 1
     assert result["archiveSha256"] == build["archiveSha256"]
     assert result["layerDigests"] == build["layerDigests"]
@@ -143,7 +157,7 @@ def test_smoke_fails_closed_and_retains_receipt_with_owned_cleanup(host, failure
         runtime.main(argv)
     result = json.loads((folder / "runtime-amd64.json").read_text())
     assert result["exitCode"] == 1
-    assert result["testScope"] == "startup-smoke-v1"
+    assert result["testScope"] == "container-functional-v1"
     assert bool(result.get("cleanupError")) is (failure == "cleanup")
     assert any(cmd[:2] == ["docker", "rm"] for _, cmd in calls)
     assert now[0] == (90 if failure == "absent" else 10 if failure == "cleanup" else

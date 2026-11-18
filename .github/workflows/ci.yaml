@@ -96,6 +96,7 @@ jobs:
 
   native:
     name: native-${{ matrix.arch }}
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -133,11 +134,13 @@ jobs:
         run: python3 -m ci.check --sources --out-dir "artifacts/native/$ARCH/sources"
       - name: Native build and verified local import
         run: python3 -m ci.build_image --arch "$ARCH" --out-dir "artifacts/native/$ARCH"
-      - name: Native startup smoke (container, HTTP, same OSCAR process for 10s)
+      - name: One complete candidate security scan
+        run: python3 -m ci.security --image "oscar-under-test:$ARCH" --arch "$ARCH" --out-dir "artifacts/native/$ARCH"
+      - name: Native functional checks (HTTP, upload, watchdog, retained files)
         run: |
           python3 -m ci.runtime --image "oscar-under-test:$ARCH" --arch "$ARCH" \
             --run-id "$OSCAR_RUN_ID" --artifacts "artifacts/native/$ARCH"
-      - name: Upload only after startup smoke and owned cleanup
+      - name: Upload only after functional checks and owned cleanup
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.arch }}

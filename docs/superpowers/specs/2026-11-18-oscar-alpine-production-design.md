@@ -14,12 +14,18 @@ mean minimal checks of the final image on real AMD64/ARM64, not repeating the
 whole experiment or testing patient data. The implementation plan and execution
 selection still require approval. Existing unrelated edits must remain untouched.
 
+Subsequent user instruction: “neres longhorn u me v k3s poikracuj”.
+The plan/execution are approved with Longhorn investigation, backup repair and
+snapshot creation excluded. Preserve existing PVCs and record rollback image
+references, but do not promise a verified data recovery point.
+
 Design gates:
 
 - [x] Review the experiment, production build/provenance and current K3s state.
 - [x] Write and self-review this proposed specification.
 - [x] User approval of the written specification and minimal-test clarification.
-- [ ] Write the implementation plan; obtain approval and execution selection.
+- [x] Write the implementation plan; user approved primary-led continuation,
+      explicitly excluding Longhorn/backup/snapshot operations.
 - [ ] Execute the approved migration with recorded verification.
 
 ## Evidence and limits
@@ -89,27 +95,25 @@ run Debian binaries through compatibility shims or apply OSCAR source patches.
 ### K3s deployment and data
 
 - Current preflight: `oscar2` is Synced/Healthy, one instance is available and
-  its existing config/data/SD claims are Bound at 1/5/2 GiB. A supported recovery
-  mechanism has not yet been established; do not assume a backup is configured.
+  its existing config/data/SD claims are Bound at 1/5/2 GiB.
 - Update only the existing `oscar2` GitOps application to the successfully
   published chart and exact image digest. Leave legacy `oscar` unchanged.
 - Preserve all three existing PVCs, names, UIDs, capacities and mount roles.
   Preserve the hostname, Cloudflare Access boundary, upload directory and kiosk
   settings. Do not change authentication, providers or storage ownership.
-- Before switching, establish and record a consistent recovery point for config
-  and data. Prefer supported existing storage backup/snapshot facilities; a local
-  snapshot must not be described as an independent backup. If recovery protection
-  cannot be established safely, stop before workload cutover.
+- Do not investigate or modify Longhorn, create snapshots, repair backups or
+  change credentials. This is the user's explicit scope exclusion. Record
+  existing PVC identities and old image/chart revisions before switching.
 - Record the old image/chart/Git revisions. Allow a controlled brief outage for
-  singleton `Recreate` deployment and consistency protection; never run two
+  singleton `Recreate` deployment; never run two
   OSCAR instances concurrently against the same writable data.
 - Verify Argo Synced/Healthy, rollout, unchanged PVC identities, unprivileged
   process, data write permissions, HTTP, synthetic upload/download and public
   authentication boundary. Do not inspect patient records or simulate a crash
   against live user data.
-- On failed live acceptance, stop and report the exact state. Any rollback must
-  use the recorded old image and protected data state, not assume that reverting
-  an image reverses application data changes.
+- On failed live acceptance, stop and report the exact state. Retain the old
+  image reference, but do not assume reverting an image reverses application
+  data changes. Data restoration is not performed or claimed.
 
 ## Acceptance
 

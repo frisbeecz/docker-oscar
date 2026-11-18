@@ -4,7 +4,7 @@
 
 **Goal:** Publish a verified source-built Alpine OSCAR release and then update the existing K3s `oscar2` application without replacing its data.
 
-**Architecture:** Promote the proven build recipe, not the experimental branch wholesale. Keep the existing tested-OCI-artifact release path; perform native image checks once in the release workflow, then publish those same archives. Protect current K3s volumes before switching the pinned chart/image.
+**Architecture:** Promote the proven build recipe, not the experimental branch wholesale. Keep the existing tested-OCI-artifact release path; perform native image checks once in the release workflow, then publish those same archives. Preserve current K3s volume identities when switching the pinned chart/image.
 
 **Tech Stack:** Docker multi-stage builds, Alpine/Selkies, Qt6/qmake, Python 3.14, pytest, Trivy, GitHub Actions, Helm 3/4, Argo CD and Longhorn.
 
@@ -18,6 +18,7 @@
 - Keep `/config`, `/config/Documents/OSCAR20_Data`, `/config/SDCARD`; the SD mount remains read-only.
 - Keep existing authentication, hardening, UID/GID behavior, source-first publication and final anonymous distribution checks.
 - Preserve unrelated dirty files in both repositories; no new credentials, paid services, provider settings or production GUI/CPAP-data tests.
+- User explicitly excluded Longhorn work: no further Longhorn queries, backup repairs, snapshots, storage credential changes or data-restore claims.
 - Native checks cover startup, unprivileged identity, synthetic upload/download, watchdog recovery and synthetic files retained after restart. No Playwright/OCR/real-card-import campaign.
 - Each implementation unit has at most two attempts, including review corrections. Real permission/infrastructure failures stop without retries or fallback.
 
@@ -27,7 +28,7 @@
 2. Source-built receipts must not claim Debian binaries or accept mismatched base/recipe provenance; AP1 mutates real receipt fixtures.
 3. Skipping duplicate main-push native builds must never skip native jobs for a release tag; AP1 checks both event contexts and the release dependency closure.
 4. A scan for a different image or new critical/unaccepted high findings must not authorize publication; AP1 tests the image-bound security receipt and failed gates.
-5. A partial recovery point or changed PVC identity must block K3s cutover/acceptance; AP4 checks captured native snapshot/PVC evidence, including rejected incomplete fixtures.
+5. A changed PVC identity must block K3s cutover/acceptance; AP4 checks captured native PVC evidence, including rejected mismatched fixtures.
 
 ## Ownership, location and gates
 
@@ -36,9 +37,10 @@
 | AP1 | High primary, write | 0/2 | Production source build, provenance, minimal CI and security gates locally verified and independently reviewed |
 | AP2 | High primary, operational | 0/2 | New release passes both native paths and publishes the tested archives |
 | AP3 | `coding-standard` if ACTIVE, bounded write | 0/2 | Compose pins the verified new published image; native Compose parser tests pass |
-| AP4 | High primary, data-sensitive write/operations | 0/2 | Protected existing volumes; GitOps rollout and scoped live verification pass |
+| AP4 | High primary, data-sensitive write/operations | 0/2 | Existing PVCs preserved; GitOps rollout and scoped live verification pass |
 
-Execution is pending approval of this plan and an execution choice.
+Execution is approved as primary-led continuation, with the user's explicit
+Longhorn/backup/snapshot exclusion recorded in the specification.
 Create an isolated native worktree named `oscar-alpine-production`, branch
 `feat/alpine-production`, from the freshly verified current `origin/main`.
 Use the actual directory returned by the worktree tool as cwd for AP1–AP3.
@@ -267,20 +269,18 @@ updated; no new volumes, host bindings, credentials or environment behavior.
   the changed state; self-review the mechanical diff and preserve other edits.
   Commit/push after PASS. Main CI does not rebuild the unchanged image.
 
-### AP4: Protect current data and update only OSCAR2 through GitOps
+### AP4: Preserve existing PVCs and update only OSCAR2 through GitOps
 
 **Interfaces:** Consumes AP2's final chart 1.1.0 and exact image digest.
 Existing claims are `oscar2-config-v2` (1 GiB), `oscar2-data-v2` (5 GiB),
 `oscar2-sdcard-v2` (2 GiB); record fresh UIDs/PV names, never assume old IDs.
 
-- [ ] **1. Read-only deployment preflight and recovery evidence.**
+- [ ] **1. Read-only deployment preflight and rollback references.**
   Verify context, current main/dirty state, Argo Synced/Healthy/no active sync,
-  pinned old chart/image, pod count, PVC identities and healthy Longhorn volumes.
+  pinned old chart/image, pod count and PVC identities.
   Save manifests and rollback revisions under `.cache/oscar2-alpine-upgrade/`.
-  Current Longhorn 1.13.0 supports Snapshot/SnapshotGroup CRs, but neither
-  configured backup target is available and these volumes have no last backup.
-  Do not repair credentials or call a local snapshot an off-site backup.
-  Write the scoped runbook, including abort/recovery actions, before downtime.
+  Do not query or change Longhorn or backup configuration. Write the scoped
+  runbook, including abort actions and the lack of verified data restoration.
 
 - [ ] **2. Prepare and locally verify the GitOps version/digest change.**
   Update the existing OSCAR2 render-test expected version/digest; observe RED.
@@ -288,31 +288,18 @@ Existing claims are `oscar2-config-v2` (1 GiB), `oscar2-data-v2` (5 GiB),
   ServerSideDiff, gateway, uploads, kiosk flags, all PVCs and legacy OSCAR.
   Run `HELM_KUBE_VERSION=1.36.4 bash scripts/verify.sh`, server dry-run of the
   rendered Application and diff checks; record a frozen relevant diff.
-  Obtain one independent review covering this diff and the data-protection
-  runbook. Keep the deployment commit local until the recovery point is ready.
+  Obtain one independent review covering this diff and the deployment runbook.
 
-- [ ] **3. Quiesce only OSCAR2 and establish a recovery point.**
-  With no active sync, temporarily annotate Application `oscar2`
-  `argocd.argoproj.io/skip-reconcile=true`, verify the pause remains effective,
-  and gracefully scale only Deployment `oscar2` to zero. Wait for its pods to
-  disappear and verify no other pod writes those claims.
-  Create a uniquely named Longhorn SnapshotGroup for the freshly resolved
-  three exact volume names, `deadlineSeconds: 300`, with migration labels.
-  Wait for group `Ready`/`readyToUse: true` and verify all three member snapshots
-  reference the expected volumes and are ready with creation times in this
-  stopped interval. SnapshotGroup fan-out is not itself atomic/quiescing;
-  stopping the only writer is what makes this a consistent recovery set.
-  Retain snapshots; do not delete/revert existing storage.
-  An evidence check must reject a missing/unready member or a changed PVC UID;
-  exercise these rejections on in-memory copies of captured JSON, not the cluster.
-  If protection fails before cutover, restore only the recorded replica/pause
-  state with the old image, report the blocker and do not deploy Alpine.
+- [ ] **3. Recheck existing PVC identities before cutover.**
+  Compare fresh PVC names/UIDs/specs with the preflight capture; reject missing
+  or changed claims. Exercise this rejection on an in-memory changed-UID copy
+  of the captured JSON, not the cluster. No maintenance pause, manual scaling,
+  snapshot, backup or data-restoration operation is required or authorized.
 
-- [ ] **4. Push the verified GitOps commit and resume reconciliation.**
-  Recheck remote/index/unchanged PVC identities and snapshot readiness.
-  Push only the reviewed deployment files; refresh root. Verify the child
-  Application now requests the new chart while its reconciliation remains
-  paused, then remove only our pause annotation and refresh OSCAR2.
+- [ ] **4. Push the verified GitOps commit and reconcile normally.**
+  Recheck remote/index/unchanged PVC identities.
+  Push only the reviewed deployment files; refresh root and OSCAR2. Verify the
+  child requests the new chart and let its existing Recreate strategy roll out.
   Stop on unexpected parent reconciliation or concurrent source changes;
   never force-push or apply workload manifests behind GitOps.
 
@@ -323,19 +310,19 @@ Existing claims are `oscar2-config-v2` (1 GiB), `oscar2-data-v2` (5 GiB),
   Remove only the synthetic probe. Do not SIGTERM the live user application,
   read patient records or claim GUI/CPAP/restore tests.
   Verify legacy OSCAR UID/spec/PVCs unchanged and available.
-  Record local recovery snapshot IDs, release/deployment revisions, commands,
+  Record old/new release/deployment revisions, commands,
   exits and remaining security/runtime limits. On failure, stop and report;
-  do not blindly restore snapshots or assume an image rollback undoes data.
+  do not assume an image rollback undoes data. No data restoration was verified.
 
 ## Plan self-review
 
 - Spec coverage: source/provenance, minimal native checks, retained scans and
-  publication are AP1/AP2; Compose is AP3; recovery, GitOps and live checks AP4.
+  publication are AP1/AP2; Compose is AP3; PVC preservation, GitOps and live checks AP4.
 - No duplicate experiment scans or main-push image builds. Release verifies
   distribution after publishing; that is not a second native application run.
 - Source/runtime/security interfaces and new receipt checks are defined above;
   existing public publication fields and historical verification remain usable.
-- Recovery protection is explicitly local and conditional; broken unrelated
-  backup credentials are neither hidden nor changed.
+- The user's explicit Longhorn exclusion is honored; no snapshot/backup repair
+  or data-recovery guarantee is implied by the deployment.
 - Only the approved experimental logic is promoted; original dirty work and
   all old registry/release versions remain intact.

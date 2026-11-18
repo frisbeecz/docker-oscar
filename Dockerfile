@@ -1,44 +1,55 @@
-FROM lscr.io/linuxserver/baseimage-selkies:debiantrixie@sha256:d03d09e9ceb770032db5892dd7caa9b207ef09b55a9b79491a1c4d37842e6c01
-ARG TARGETARCH
+FROM ghcr.io/linuxserver/baseimage-selkies:alpine324@sha256:f2820b8df78eb020785850492c2b6547de2c762fcfcd644b11d4f7e211f5a987 AS build
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+RUN apk add --no-cache \
+      build-base bash python3 curl ca-certificates \
+      qt6-qtbase-dev qt6-qtserialport-dev qt6-qttools \
+      libx11-dev zlib-dev glu-dev
+WORKDIR /src
+RUN curl --fail --location --connect-timeout 20 --max-time 300 \
+      "https://gitlab.com/CrimsonNape/OSCAR-SQL/-/archive/4f14624616d62c6986788417bc5c519c807a7ade/OSCAR-SQL-4f14624616d62c6986788417bc5c519c807a7ade.tar.gz" \
+      -o /tmp/oscar-source.tar.gz \
+    && echo "063b4b6e797d40f8d060453f865fb0e5f48c71cbb72adee0387e76e844313dad  /tmp/oscar-source.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/oscar-source.tar.gz --strip-components=1 \
+    && rm /tmp/oscar-source.tar.gz
+WORKDIR /build
+# Upstream graphics selection and warnings are unchanged; no source patches.
+RUN qmake6 /src/OSCAR_QT.pro 'CONFIG+=release' 'CONFIG-=debug' \
+    && make -j2 \
+    && test -x /build/oscar/OSCAR20 \
+    && test -f /build/oscar/Html/about.html \
+    && test -d /build/oscar/Translations
+
+FROM ghcr.io/linuxserver/baseimage-selkies:alpine324@sha256:f2820b8df78eb020785850492c2b6547de2c762fcfcd644b11d4f7e211f5a987
 ARG VCS_REF=unknown
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 LABEL org.opencontainers.image.title="OSCAR with Selkies" \
-    org.opencontainers.image.version="2.1.1-r7" \
-    org.opencontainers.image.revision="${VCS_REF}" \
-    org.opencontainers.image.licenses="Apache-2.0" \
-    org.opencontainers.image.source="https://github.com/frisbeecz/docker-oscar"
+      org.opencontainers.image.version="2.1.1-r8" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://github.com/frisbeecz/docker-oscar"
 ENV PIXELFLUX_WAYLAND=true RESTART_APP=true HARDEN_DESKTOP=true \
     START_DOCKER=false HOME=/config TITLE=OSCAR \
     QT_QPA_PLATFORM=wayland LIBGL_ALWAYS_SOFTWARE=true \
     XDG_CONFIG_HOME=/config/.config XDG_DATA_HOME=/config/.local/share \
     XDG_CACHE_HOME=/config/.cache
-# Official unmodified Debian13 Qt6 packages; validate bytes and metadata before apt.
-RUN case "$TARGETARCH" in \
-      amd64) sha256=a9256776774e9ae1313feb5ed0aa5fe38eb808168c3e2d5ea0e3e3ce4ce289dc ;; \
-      arm64) sha256=6973e4f8d81f170a6d59ea1205c954e231c8158f10c433cec3bc23e903f9bece ;; \
-      *) echo "Unsupported OSCAR architecture: $TARGETARCH" >&2; exit 1 ;; \
-    esac \
-    && test "$(dpkg --print-architecture)" = "$TARGETARCH" \
-    && curl --fail --location --connect-timeout 20 --max-time 300 \
-      --max-filesize 134217728 \
-      "https://www.sleepfiles.com/OSCAR/2.1.1/oscar20_2.1.1-Debian13_${TARGETARCH}-Qt6.deb" \
-      -o /tmp/oscar.deb \
-    && echo "$sha256  /tmp/oscar.deb" | sha256sum -c - \
-    && test "$(dpkg-deb -f /tmp/oscar.deb Package)" = oscar20 \
-    && test "$(dpkg-deb -f /tmp/oscar.deb Version)" = 2.1.1-Debian13 \
-    && test "$(dpkg-deb -f /tmp/oscar.deb Architecture)" = "$TARGETARCH" \
-    && apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      /tmp/oscar.deb libqt6sql6-sqlite qt6-wayland qt6-translations-l10n \
-      libgl1-mesa-dri fonts-dejavu-core \
-    && rm -f /tmp/oscar.deb \
-    && rm -rf /var/lib/apt/lists/*
-RUN test -x /usr/bin/OSCAR20 \
-    && test -d /usr/share/OSCAR20/Translations \
-    && test -d /usr/share/OSCAR20/Html \
-    && test -f /usr/share/doc/oscar20/copyright \
-    && mkdir -p /usr/share/oscar \
-    && dpkg-query -W > /usr/share/oscar/runtime-packages.txt
+RUN apk add --no-cache \
+      qt6-qtbase-x11 qt6-qtbase-wayland qt6-qtbase-sqlite \
+      qt6-qtserialport qt6-qtwayland qt6-qttranslations \
+      libx11 zlib glu font-dejavu mesa-dri-gallium
+# Refresh only the three tested packages, not Selkies/pixelflux or system Python.
+COPY python-requirements.txt /tmp/oscar-python-requirements.txt
+RUN /lsiopy/bin/python3 -m pip install --no-cache-dir --upgrade --no-deps \
+      --only-binary=:all: --require-hashes -r /tmp/oscar-python-requirements.txt \
+    && /lsiopy/bin/python3 -m pip check \
+    && rm /tmp/oscar-python-requirements.txt
+COPY --from=build /build/oscar/OSCAR20 /usr/bin/OSCAR20
+COPY --from=build /build/oscar/Html/ /usr/share/OSCAR20/Html/
+COPY --from=build /build/oscar/Translations/ /usr/share/OSCAR20/Translations/
+COPY --from=build /src/COPYING /usr/share/licenses/OSCAR20/COPYING
 COPY LICENSE NOTICE.md versions.lock.json /usr/share/oscar/
 COPY root/ /
-RUN chmod 755 /usr/local/bin/oscar-start /etc/s6-overlay/s6-rc.d/init-oscar-data/run
-# Retain base /init, services, UID/GID handling and watchdog; OSCAR runs as abc.
+RUN chmod 755 /usr/local/bin/oscar-start /etc/s6-overlay/s6-rc.d/init-oscar-data/run \
+    && apk info -v > /usr/share/oscar/runtime-packages.txt \
+    && /lsiopy/bin/python3 -m pip list --format=json > /usr/share/oscar/python-packages.json \
+    && ldd /usr/bin/OSCAR20 > /usr/share/oscar/ldd.txt \
+    && ! grep -q 'not found' /usr/share/oscar/ldd.txt

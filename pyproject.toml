@@ -1,6 +1,6 @@
 [project]
 name = "docker-oscar"
-version = "1.0.2"
+version = "1.1.0"
 requires-python = ">=3.14"
 license = "Apache-2.0"
 

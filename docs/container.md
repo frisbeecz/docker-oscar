@@ -79,21 +79,23 @@ are the identity boundary, not an invented equal registry manifest.
 Source provenance JSON is **not a signed BuildKit attestation**.
 No development HEAD or unverified OSCAR download is used.
 
-The pinned Selkies base is Debian13 `debiantrixie`; the single image installs
-the official architecture-specific OSCAR2.1.1 Qt6 `.deb` after checking SHA256,
-package name, version and architecture. There is no OSCAR compiler stage.
-The unchanged launcher resolves packaged `/usr/bin/OSCAR20`; translations/HTML
-are in `/usr/share/OSCAR20/`. SQLite, Wayland and Qt translations are installed
-explicitly in addition to package-declared Qt dependencies.
-Debian dependencies come from distribution repositories; their exact installed
+The pinned Selkies base is Alpine 3.24 `alpine324`. A native compiler stage
+verifies the locked OSCAR 2.1.1 source SHA256 before extraction, then uses
+qmake6/make without source patches. Only the compiled binary, resources and
+COPYING are copied to the runtime stage. The unchanged launcher resolves
+`/usr/bin/OSCAR20`; translations/HTML are in `/usr/share/OSCAR20/`.
+SQLite, Wayland, Qt translations and software Mesa are installed explicitly.
+The three tested Python upgrades are hash-locked in `python-requirements.txt`
+and installed only in the existing `/lsiopy` environment, followed by `pip check`.
+Alpine dependencies come from distribution repositories; their exact installed
 versions are retained in `/usr/share/oscar/runtime-packages.txt`, not claimed
 as a reproducible package snapshot. A missing/incompatible package is a visible
 build failure, never a silent OS fallback.
 
 ## Native runtime interface and receipts
 
-The user-approved 2026-11-15 `startup-smoke-v1` scope replaces historical
-GUI/profile/persistence/Kubernetes functional acceptance. The normal runtime
+The approved `container-functional-v1` scope extends the previous startup-only
+check with synthetic upload, watchdog and retained-file checks. The normal runtime
 needs Docker and Python, not a browser, OCR or GUI controller. Native bootstrap
 builds checksum-locked Skopeo for image import/publication; it no longer acquires
 Tesseract, traineddata or Chromium. Tool locks/dependencies retained for legacy
@@ -127,12 +129,23 @@ polled every second. Replacement/exit/duplicates/wrong identity or a stopped
 container fail, never reset the observation. Container state is also checked
 during HTTP readiness. No profile is created and no database is inspected.
 
-The receipt declares `testScope: "startup-smoke-v1"` and exactly
-`containerRunning`, `httpReady`, `oscarStable` boolean checks, with `process`
-identity and `durationSeconds`. HTTP200 does not prove a usable/decoded GUI.
-Remote GUI/media, import, profile/data persistence, watchdog and actual Kubernetes
-installation/routing remain **unverified**. Earlier acceptance is not relabeled
-as passed. See [acceptance](acceptance.md).
+The receipt declares `testScope: "container-functional-v1"` and eight strict
+checks: `containerRunning`, `httpReady`, `oscarStable`, `unprivileged`,
+`uploadRoundTrip`, `watchdogRestart`, `dataRetained`, `sdcardReadOnly`.
+After the initial process observation it verifies actual mount flags and
+unprivileged writes, round-trips a uniquely owned nested synthetic upload,
+terminates only its owned OSCAR process and verifies watchdog replacement.
+One container restart must retain both synthetic files, checked before any
+overwrite. Same-filesystem bind mounts are checked through Linux mountinfo,
+not the unreliable `os.path.ismount` predicate.
+This proves neither a usable/decoded GUI nor CPAP import, real profile/database
+migration, restoration or actual Kubernetes routing. See [acceptance](acceptance.md).
+
+Each release architecture also produces one full image-bound Trivy report.
+Any critical or unaccepted high advisory blocks publication. The five accepted
+inherited high IDs remain visible; updates in the active Python environment do
+not prove older scanned copies have disappeared. The original experiment still
+reported five high, two medium and one low finding after those upgrades.
 
 Failures retain JSON and owned container logs with synthetic startup content
 only. Cleanup removes only exact names with matching ownership labels; no prune
@@ -160,9 +173,9 @@ An optional `--source-archive PATH` uses an offline cache but never bypasses
 the source checksum. Use an empty output directory. Bundle includes the exact
 OSCAR archive and COPYING, explicit applied-patch list (empty here), our
 packaging/build/launcher/harness/tests/licences and per-file checksum manifest.
-It also includes official binary package provenance. Version/tag and embedded
-short commit alignment have been checked, not upstream binary reproducibility
-or complete binary-to-source correspondence (see NOTICE).
+It includes source-build provenance, the exact Python requirements and actual
+packaging-input hashes. Historical Debian receipts remain readable, but the
+new build makes no Debian binary correspondence claim (see NOTICE).
 Upstream notices remain unmodified. See [NOTICE](../NOTICE.md) for base,
 Qt, package source and licensing obligations; our Apache-2.0 does not relicense
 dependencies.

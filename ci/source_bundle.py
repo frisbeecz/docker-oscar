@@ -12,14 +12,15 @@ import tempfile
 from ci import ROOT, load_lock, receipt, run, sha256_file, write_json
 
 SOURCE_FILES = [
-    "Dockerfile", ".dockerignore", ".gitignore", "versions.lock.json",
+    "Dockerfile", ".dockerignore", ".gitignore", "versions.lock.json", "python-requirements.txt",
     "root/defaults/autostart_wayland", "root/usr/local/bin/oscar-start",
     "root/etc/s6-overlay/s6-rc.d/init-oscar-data/run",
     "root/etc/s6-overlay/s6-rc.d/init-oscar-data/type",
     "root/etc/s6-overlay/s6-rc.d/init-oscar-data/up",
     "root/etc/s6-overlay/s6-rc.d/init-oscar-data/dependencies.d/init-custom-files",
     "root/etc/s6-overlay/s6-rc.d/init-services/dependencies.d/init-oscar-data",
-    "ci/__init__.py", "ci/build_image.py", "ci/runtime.py", "ci/gui.py",
+    "ci/__init__.py", "ci/build_image.py", "ci/runtime.py", "ci/runtime_checks.py", "ci/gui.py",
+    "ci/security.py", "ci/check.py", "ci/chart.py",
     "ci/source_bundle.py", "ci/tools.lock.json", "requirements-ci.lock",
     "pyproject.toml", "LICENSE", "NOTICE.md", "README.md",
     "docs/container.md", "docs/migration.md",
@@ -45,11 +46,24 @@ def binary_provenance(locked):
             "correspondence": source["binarySourceCorrespondence"]}
 
 
+def source_provenance(locked: dict) -> dict:
+    source = locked["oscar"]
+    build = {"type": "source", "recipe": "Dockerfile", "pythonRequirements": "python-requirements.txt"}
+    if (source.get("build") != build or "binaries" in source or "binarySourceCorrespondence" in source
+            or not re.fullmatch(r"[a-f0-9]{40}", source.get("commit", ""))
+            or not re.fullmatch(r"[a-f0-9]{64}", source.get("sha256", ""))
+            or source.get("url") != ("https://gitlab.com/CrimsonNape/OSCAR-SQL/-/archive/"
+                                    f"{source['commit']}/OSCAR-SQL-{source['commit']}.tar.gz")):
+        raise ValueError("inconsistent source provenance")
+    return {**build, "sourceCommit": source["commit"], "sourceSha256": source["sha256"]}
+
+
 def build_bundle(out_dir: Path, *, project=ROOT, source_archive: Path | None = None, command=None) -> dict:
     project, out_dir = Path(project), Path(out_dir)
     locked = load_lock(project=project)
     source = locked["oscar"]
-    provenance = binary_provenance(locked)
+    proof = "sourceProvenance" if "build" in source else "binaryProvenance"
+    provenance = source_provenance(locked) if proof == "sourceProvenance" else binary_provenance(locked)
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="oscar-source-", dir=out_dir.parent) as tmp:
         tmp = Path(tmp)
@@ -81,14 +95,14 @@ def build_bundle(out_dir: Path, *, project=ROOT, source_archive: Path | None = N
                     raise ValueError(f"missing or unsafe source input: {name}")
                 tar.add(path, arcname="docker-oscar/" + name, recursive=False)
         origin = {**receipt(project=project, command=command), "exitCode": 0, "oscar": source,
-                  "binaryProvenance": provenance,
+                  proof: provenance,
                   "base": locked["base"], "patches": [], "license": "Apache-2.0",
                   "sourceArchive": {"path": upstream.name, "sha256": sha256_file(upstream)},
                   "packaging": {"path": packaging.name, "sha256": sha256_file(packaging)},
                   "files": {name: sha256_file(project / name) for name in files},
                   "checks": {"sourceChecksum": True, "upstreamLicense": True,
                               "patchList": True, "packagingInputs": True,
-                              "binaryProvenance": True}}
+                               proof: True}}
         write_json(out_dir / "origin.json", origin)
         return origin
 

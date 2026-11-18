@@ -1,6 +1,7 @@
 **
 !Dockerfile
 !versions.lock.json
+!python-requirements.txt
 !LICENSE
 !NOTICE.md
 !root

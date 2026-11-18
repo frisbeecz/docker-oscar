@@ -15,9 +15,11 @@ import yaml
 
 from ci import CLEAN_DIFF_SHA256, sha256_file, state_identity
 from ci.build_image import inspect_oci
+from ci.source_bundle import source_provenance
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = {"containerRunning", "httpReady", "oscarStable"}
+RUNTIME = {"containerRunning", "httpReady", "oscarStable", "unprivileged", "uploadRoundTrip",
+           "watchdogRestart", "dataRetained", "sdcardReadOnly"}
 PROCESS = {"pid": 42, "start": "12345", "uid": 1234, "gid": 2345, "exe": "/usr/bin/OSCAR20",
            "args": ["OSCAR20", "--legacy", "--datadir", "/config/Documents/OSCAR20_Data"]}
 
@@ -60,9 +62,11 @@ def evidence(tmp_path):
     lock = json.loads((ROOT / "versions.lock.json").read_text())
     lock["oscar"]["sha256"] = hashlib.sha256(b"synthetic upstream").hexdigest()
     dump(project / "versions.lock.json", lock)
+    dump(project / "ci/tools.lock.json", {"trivy": {"version": "0.76.2"}})
     (project / "charts/oscar").mkdir(parents=True)
     (project / "charts/oscar/Chart.yaml").write_text("version: 0.1.0\nappVersion: 2.1.1\n")
-    subprocess.run(["git", "add", ".gitignore", "versions.lock.json", "charts/oscar/Chart.yaml"],
+    subprocess.run(["git", "add", ".gitignore", "versions.lock.json", "ci/tools.lock.json",
+                    "charts/oscar/Chart.yaml"],
                    cwd=project, check=True)
     subprocess.run(["git", "-c", "user.name=CI synthetic", "-c", "user.email=ci@example.org",
                     "commit", "-qm", "synthetic evidence fixture"], cwd=project, check=True)
@@ -85,7 +89,16 @@ def evidence(tmp_path):
             "nativeHost": True, "nativeDaemon": True, "singleManifest": True, "configAndLayerIdentity": True}}
         dump(folder / f"build-{arch}.json", build)
         dump(folder / f"runtime-{arch}.json", {**common, "checks": dict.fromkeys(RUNTIME, True),
-             "testScope": "startup-smoke-v1", "durationSeconds": 10.0, "process": PROCESS})
+              "testScope": "container-functional-v1", "durationSeconds": 10.0, "process": PROCESS})
+        dump(folder / "security-report.json", {
+            "Metadata": {"ImageID": common["configDigest"],
+                         "ImageConfig": {"architecture": arch, "os": "linux"}},
+            "Results": [
+                {"Target": "synthetic Alpine packages", "Class": "os-pkgs", "Type": "alpine"},
+                {"Target": "Python", "Class": "lang-pkgs", "Type": "python-pkg"}]})
+        dump(folder / f"security-{arch}.json", {**common,
+             "checks": {"noCritical": True, "acceptedHigh": True}, "scannerVersion": "0.76.2",
+             "reportSha256": sha256_file(folder / "security-report.json")})
     dump(directory / "static/check.json", {**base, "checks": dict.fromkeys(
         ["actionlint", "yamllint", "hadolint", "shellcheck", "pythonLint", "pytest"], True)})
     for version in ("3.19.0", "4.3.2"):
@@ -106,8 +119,9 @@ def evidence(tmp_path):
     (source / "packaging.tar.gz").write_bytes(b"synthetic packaging")
     with (source / "project-source.tar.gz").open("wb") as f:
         subprocess.run(["git", "archive", "--format=tar.gz", commit], cwd=project, check=True, stdout=f)
-    dump(source / "origin.json", {**base, "oscar": lock["oscar"], "checks": dict.fromkeys(
-        ["sourceChecksum", "upstreamLicense", "patchList", "packagingInputs"], True),
+    dump(source / "origin.json", {**base, "oscar": lock["oscar"], "base": lock["base"],
+        "sourceProvenance": source_provenance(lock), "checks": dict.fromkeys(
+        ["sourceChecksum", "upstreamLicense", "patchList", "packagingInputs", "sourceProvenance"], True),
         "sourceArchive": {"path": "upstream.tar.gz", "sha256": sha256_file(source / "upstream.tar.gz")},
         "packaging": {"path": "packaging.tar.gz", "sha256": sha256_file(source / "packaging.tar.gz")}})
     dump(source / "project.json", {**base, "archiveSha256": sha256_file(source / "project-source.tar.gz"),
@@ -120,7 +134,85 @@ def test_accept_exact_clean_evidence(evidence):
     result = product().verify(directory, commit, project=project)
     assert set(result["platforms"]) == {"amd64", "arm64"}
     assert result["gitCommit"] == commit
-    assert result["testScope"] == "startup-smoke-v1"
+    assert result["testScope"] == "container-functional-v1"
+
+
+@pytest.mark.parametrize("failure", ["missing", "checksum", "config", "image", "arch", "failed",
+                                    "scanner", "report-image", "report-arch", "critical", "high"])
+def test_security_evidence_must_match_before_publication(evidence, failure):
+    project, directory, commit = evidence
+    folder = directory / "native/amd64"
+    receipt_path = folder / "security-amd64.json"
+    data = json.loads(receipt_path.read_text())
+    report_path = folder / "security-report.json"
+    scan = json.loads(report_path.read_text())
+    if failure == "missing":
+        receipt_path.unlink()
+    elif failure == "checksum":
+        data["reportSha256"] = "0" * 64
+    elif failure == "config":
+        data["configDigest"] = "sha256:" + "0" * 64
+    elif failure == "image":
+        data["image"] = "unrelated:latest"
+    elif failure == "arch":
+        data["arch"] = "arm64"
+    elif failure == "failed":
+        data["checks"]["noCritical"] = False
+    elif failure == "scanner":
+        data["scannerVersion"] = "unapproved"
+    elif failure.startswith("report"):
+        if failure == "report-image":
+            scan["Metadata"]["ImageID"] = "sha256:" + "0" * 64
+        else:
+            scan["Metadata"]["ImageConfig"]["architecture"] = "arm64"
+    else:
+        scan["Results"][0]["Vulnerabilities"] = [{
+            "VulnerabilityID": "CVE-unknown", "Severity": "CRITICAL" if failure == "critical" else "HIGH"}]
+    if failure in {"critical", "high", "report-image", "report-arch"}:
+        dump(report_path, scan)
+        data["reportSha256"] = sha256_file(report_path)
+    if failure != "missing":
+        dump(receipt_path, data)
+    # Exercise the gate directly: publish() calls it before credentials, tags or writes.
+    # A missing publication environment must not make this negative test pass.
+    with pytest.raises(ValueError):
+        product().verify(directory, commit, project=project)
+
+
+@pytest.mark.parametrize("coverage", ["empty-result", "os-only", "python-only"])
+def test_incomplete_scan_with_matching_hash_cannot_authorize_release(evidence, coverage):
+    project, directory, commit = evidence
+    folder = directory / "native/amd64"
+    report_path = folder / "security-report.json"
+    scan = json.loads(report_path.read_text())
+    scan["Results"] = ([{}] if coverage == "empty-result"
+                       else [scan["Results"][0 if coverage == "os-only" else 1]])
+    dump(report_path, scan)
+    receipt_path = folder / "security-amd64.json"
+    data = json.loads(receipt_path.read_text())
+    data["reportSha256"] = sha256_file(report_path)
+    dump(receipt_path, data)
+    with pytest.raises(ValueError):
+        product().verify(directory, commit, project=project)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "source", "recipe", "base", "check"])
+def test_release_rejects_source_provenance_mismatch(evidence, mutation):
+    project, directory, commit = evidence
+    path = directory / "sources/origin.json"
+    data = json.loads(path.read_text())
+    if mutation == "missing":
+        del data["sourceProvenance"]
+    elif mutation == "base":
+        data["base"]["digest"] = "sha256:" + "0" * 64
+    elif mutation == "check":
+        data["checks"]["sourceProvenance"] = False
+    else:
+        key = "sourceCommit" if mutation == "source" else "recipe"
+        data["sourceProvenance"][key] = "wrong"
+    dump(path, data)
+    with pytest.raises(ValueError):
+        product().verify(directory, commit, project=project)
 
 
 def test_current_release_versions_are_consistent(evidence):
@@ -140,9 +232,9 @@ def test_current_release_versions_are_consistent(evidence):
         "release_image": result["imageTag"],
         "release_oscar": result["oscarVersion"],
     } == {
-        "project": "1.0.2", "chart": "1.0.2", "app": "2.1.1",
-        "oscar": "2.1.1", "locked_image": "2.1.1-r7",
-        "default_image": "2.1.1-r7", "release_image": "2.1.1-r7",
+        "project": "1.1.0", "chart": "1.1.0", "app": "2.1.1",
+        "oscar": "2.1.1", "locked_image": "2.1.1-r8",
+        "default_image": "2.1.1-r8", "release_image": "2.1.1-r8",
         "release_oscar": "2.1.1",
     }
 
@@ -341,7 +433,7 @@ def publication(evidence, monkeypatch):
             raw = state["dockerhub"]
         elif "/charts/oscar:" in ref:
             raw = state["chart"]
-        elif ref.endswith(":2.1.1-r7"):
+        elif ref.endswith(":2.1.1-r8"):
             raw = state["tag"]
         elif any(ref.endswith(p["manifestDigest"]) for p in identity.values()):
             arch = next(a for a, p in identity.items() if ref.endswith(p["manifestDigest"]))
@@ -401,7 +493,7 @@ def test_publish_sources_first_preserves_digests_and_never_rebuilds(publication)
     assert commands[-1][:3] == ["gh", "release", "edit"]
     assert result["imageIndexDigest"].startswith("sha256:")
     assert result["chartDigest"].startswith("sha256:")
-    assert result["testScope"] == "startup-smoke-v1"
+    assert result["testScope"] == "container-functional-v1"
     assert json.loads((directory / "release-manifest.json").read_text())["gitCommit"] == commit
     assert all("synthetic-not-a-token" not in " ".join(c) for c in commands)
     assert all("synthetic-dockerhub-token" not in " ".join(c) for c in commands)
@@ -427,7 +519,7 @@ def test_dockerhub_mirror_copies_complete_tested_index_by_digest(publication, mo
     result = release.publish(directory, commit, "ghcr.io/frisbeecz", project=project)
     index_digest = "sha256:" + hashlib.sha256(state["index"]).hexdigest()
     mirrors = [c for c in commands if c[:2] == ["skopeo", "copy"]
-               and c[-1] == "docker://docker.io/frisbeecz24/docker-oscar:2.1.1-r7"]
+               and c[-1] == "docker://docker.io/frisbeecz24/docker-oscar:2.1.1-r8"]
     assert len(mirrors) == 1 and len(logins) == 1
     assert "--all" in mirrors[0] and "--preserve-digests" in mirrors[0]
     assert mirrors[0][-2] == "docker://ghcr.io/frisbeecz/docker-oscar@" + index_digest
@@ -477,6 +569,7 @@ def test_verify_saved_ghcr_only_manifest_remains_supported(publication):
     path = directory / "release-manifest.json"
     data = json.loads(path.read_text())
     data.pop("dockerHubRepository")
+    data["testScope"] = "startup-smoke-v1"
     dump(path, data)
     state["dockerhub"] = b"must not be read for a pre-mirror manifest"
     assert release.verify_published(path)["imageRepository"] == "ghcr.io/frisbeecz/docker-oscar"

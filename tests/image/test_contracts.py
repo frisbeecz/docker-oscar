@@ -24,7 +24,7 @@ def test_locked_inputs(lock):
     assert lock["oscar"]["version"] == "2.1.1"
     assert lock["oscar"]["commit"] == "4f14624616d62c6986788417bc5c519c807a7ade"
     assert set(lock["platforms"]) == {"linux/amd64", "linux/arm64"}
-    assert lock["base"]["tag"] == "debiantrixie"
+    assert lock["base"]["tag"] == "alpine324"
     assert valid_immutable_digests_and_checksums(lock)
 
 
@@ -45,9 +45,9 @@ def test_default_hardening(lock):
     for setting in ["PIXELFLUX_WAYLAND=true", "RESTART_APP=true", "HARDEN_DESKTOP=true"]:
         assert setting in text
     assert lock["base"]["digest"] in text
-    assert "libqt6sql6-sqlite" in text
-    assert "qt6-wayland" in text
-    assert "qt6-translations-l10n" in text
+    assert "qt6-qtbase-sqlite" in text
+    assert "qt6-qtwayland" in text
+    assert "qt6-qttranslations" in text
     assert "ENTRYPOINT" not in text
     assert "VNC" not in text
     autostart = ROOT / "root/defaults/autostart_wayland"

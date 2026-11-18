@@ -1,4 +1,4 @@
-"""Native startup-only smoke; never touches host application data.
+"""Native functional gate; only synthetic data in owned disposable volumes.
 
 SPDX-License-Identifier: Apache-2.0
 """
@@ -25,8 +25,9 @@ from ci.build_image import require_native, require_native_daemon, verify_import
 OWNER_LABEL = "io.docker-oscar.ci-owner"
 DATADIR = "/config/Documents/OSCAR20_Data"
 PROFILE = "ci-synthetic"
-TEST_SCOPE = "startup-smoke-v1"
-REQUIRED_CHECKS = {"containerRunning", "httpReady", "oscarStable"}
+TEST_SCOPE = "container-functional-v1"
+REQUIRED_CHECKS = {"containerRunning", "httpReady", "oscarStable", "unprivileged",
+                   "uploadRoundTrip", "watchdogRestart", "dataRetained", "sdcardReadOnly"}
 
 # Read-only application inspection. No SQL INSERT/UPDATE, PRAGMA writes,
 # config edits, or manufactured profile files are permitted here.
@@ -111,10 +112,14 @@ def container_command(image, name, volumes, *, readonly_data=False):
         "START_DOCKER=false", "LIBGL_ALWAYS_SOFTWARE=true", "SELKIES_USE_CPU=true",
         "SELKIES_ENCODER=h264enc", "SELKIES_MANUAL_RESOLUTION=true",
         "SELKIES_MANUAL_WIDTH=1280", "SELKIES_MANUAL_HEIGHT=800",
+        "SELKIES_FILE_TRANSFERS=upload,download", "SELKIES_UI_SIDEBAR_SHOW_FILES=true",
+        "FILE_MANAGER_PATH=/config/Uploads", "SELKIES_COMMAND_ENABLED=false",
+        "SELKIES_UI_SIDEBAR_SHOW_APPS=false", "DISABLE_WINDOW_BUTTONS=true",
+        "HARDEN_KEYBINDS=false", "DISABLE_MOUSE_BUTTONS=false",
     ]:
         command += ["-e", value]
     for kind, destination in [("config", "/config"), ("data", DATADIR), ("sdcard", "/config/SDCARD")]:
-        mount = f"type=volume,src={volumes[kind]},dst={destination}"
+        mount = f"type=volume,src={volumes[kind]},dst={destination},volume-nocopy"
         if kind == "sdcard" or (kind == "data" and readonly_data):
             mount += ",readonly"
         command += ["--mount", mount]
@@ -368,6 +373,13 @@ def execute(args, result, resources):
     process, duration = observe_startup(container)
     result.update(process=process, durationSeconds=duration)
     result["checks"]["oscarStable"] = True
+    from ci.runtime_checks import exercise
+    arguments = dict(uid=1234, gid=2345, expected_python=load_lock()["pythonPackages"],
+                     run_id=args.run_id, artifacts=args.artifacts)
+    result["checks"].update(exercise(container, phase="initial", **arguments))
+    run(["docker", "restart", "--time", "15", container])
+    wait_http(container)
+    result["checks"].update(exercise(container, phase="restarted", **arguments))
     validate_checks(result["checks"])
 
 

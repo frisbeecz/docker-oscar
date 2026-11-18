@@ -111,10 +111,23 @@ def test_release_dependency_closure():
     assert {(p["arch"], p["runner"]) for p in native} == {
         ("amd64", "ubuntu-24.04"), ("arm64", "ubuntu-24.04-arm")}
     assert ci_jobs["native"]["strategy"]["fail-fast"] is False
-    assert all(not ci_jobs[j].get("if") for j in ci_jobs)
+    assert all(not ci_jobs[j].get("if") for j in ("static", "helm"))
 
 
-def test_native_gate_is_startup_only_and_success_upload_depends_on_smoke():
+@pytest.mark.parametrize("event,ref,expected", [
+    ("push", "refs/heads/main", False),
+    ("push", "refs/tags/v1.1.0", True),
+    ("pull_request", "refs/pull/1/merge", True),
+])
+def test_native_runs_for_release_but_not_duplicate_main_push(event, ref, expected):
+    condition = workflows()["ci"]["jobs"]["native"].get("if")
+    assert condition == "github.event_name != 'push' || github.ref != 'refs/heads/main'"
+    # Evaluate only this exact constrained expression, using GitHub's boolean operators.
+    expression = condition.replace("github.event_name", repr(event)).replace("github.ref", repr(ref))
+    assert eval(expression.replace("||", "or"), {"__builtins__": {}}) is expected
+
+
+def test_native_functional_gate_and_scan_precede_success_upload():
     ws = workflows()
     for wf in ws.values():
         for job in wf["jobs"].values():
@@ -125,11 +138,12 @@ def test_native_gate_is_startup_only_and_success_upload_depends_on_smoke():
     steps = ws["ci"]["jobs"]["native"]["steps"]
     source = next(i for i, s in enumerate(steps) if "ci.check --sources" in s.get("run", ""))
     build = next(i for i, s in enumerate(steps) if "-m ci.build_image " in s.get("run", ""))
+    scan = next(i for i, s in enumerate(steps) if "-m ci.security " in s.get("run", ""))
     smoke = next(i for i, s in enumerate(steps) if "ci.runtime " in s.get("run", ""))
     upload = next(i for i, s in enumerate(steps)
                   if s.get("with", {}).get("name") == "native-${{ matrix.arch }}")
-    assert source < build < smoke < upload
-    assert all(not steps[i].get("if") for i in (source, build, smoke, upload))
+    assert source < build < scan < smoke < upload
+    assert all(not steps[i].get("if") for i in (source, build, scan, smoke, upload))
     assert "--negative-base-probe" not in steps[smoke]["run"]
     diagnostics = next(s for s in steps if s.get("if") == "failure()")
     assert diagnostics["with"]["path"].splitlines() == [

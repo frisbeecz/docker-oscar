@@ -113,7 +113,7 @@ def test_native_mounts_and_loopback_only():
     assert "127.0.0.1::3000" in cmd
     assert "PUID=1234" in cmd and "PGID=2345" in cmd
     assert "no-new-privileges=true" in cmd
-    assert "type=volume,src=volume-sd,dst=/config/SDCARD,readonly" in cmd
+    assert "type=volume,src=volume-sd,dst=/config/SDCARD,volume-nocopy,readonly" in cmd
     for forbidden in ["--privileged", "docker.sock", "type=bind", "--gpus", "--network=host"]:
         assert forbidden not in joined
 
@@ -164,12 +164,14 @@ def test_source_bundle_from_fresh_checkout_without_artifacts(tmp_path):
     manifest = source.build_bundle(destination, project=project, source_archive=archive, command=command)
     assert manifest["patches"] == []
     assert manifest["license"] == "Apache-2.0"
-    assert manifest["oscar"]["binaries"] == lock["oscar"]["binaries"]
-    assert manifest["binaryProvenance"] == {
-        "packages": lock["oscar"]["binaries"],
-        "sourceTag": "v2.1.1",
+    assert "binaries" not in manifest["oscar"]
+    assert "binaryProvenance" not in manifest
+    assert manifest["sourceProvenance"] == {
+        "type": "source",
         "sourceCommit": lock["oscar"]["commit"],
-        "correspondence": "version-aligned; not independently proven",
+        "sourceSha256": lock["oscar"]["sha256"],
+        "recipe": "Dockerfile",
+        "pythonRequirements": "python-requirements.txt",
     }
     assert (destination / "OSCAR-COPYING").read_bytes() == text
     with tarfile.open(destination / "packaging.tar.gz") as tar:
@@ -177,11 +179,14 @@ def test_source_bundle_from_fresh_checkout_without_artifacts(tmp_path):
         assert tar.extractfile("docker-oscar/LICENSE").read() == (ROOT / "LICENSE").read_bytes()
         assert b"Version 2.0, January 2004" in tar.extractfile("docker-oscar/LICENSE").read()
         assert all(".git/" not in name and "WORKLOG" not in name for name in tar.getnames())
+        assert tar.extractfile("docker-oscar/python-requirements.txt").read() == (ROOT / "python-requirements.txt").read_bytes()
+    assert manifest["files"]["python-requirements.txt"] == hashlib.sha256(
+        (ROOT / "python-requirements.txt").read_bytes()).hexdigest()
     assert json.loads((destination / "origin.json").read_text())["sourceArchive"]["sha256"] == lock["oscar"]["sha256"]
     assert manifest["exitCode"] == 0
     assert manifest["checks"] == {"sourceChecksum": True, "upstreamLicense": True,
                                   "patchList": True, "packagingInputs": True,
-                                  "binaryProvenance": True}
+                                  "sourceProvenance": True}
     assert manifest["cwd"] == str(project.resolve())
     assert manifest["command"] == command
 

@@ -1,14 +1,14 @@
 # Releasing OSCAR
 
-Project: **frisbeecz/docker-oscar**. Current versions: chart/project **1.0.2**,
-OSCAR **2.1.1**, image **2.1.1-r7**. Existing tags, releases and published
+Project: **frisbeecz/docker-oscar**. Current versions: chart/project **1.1.0**,
+OSCAR **2.1.1**, image **2.1.1-r8**. Existing tags, releases and published
 artifacts must not be overwritten as a recovery mechanism.
 
 ## Flow
 
 1. Push a fresh stable `v<chart-version>` tag.
 2. GitHub runs the normal CI: static checks, both Helm versions, and native
-   AMD64/ARM64 build/startup smoke. `publish` has `needs: [tests]`; failed or
+   AMD64/ARM64 source build, one candidate scan and one functional pass. `publish` has `needs: [tests]`; failed or
    skipped CI blocks publication without a separate job-result API audit.
 3. The publish job downloads this run's immutable artifacts. It validates the
    tested files once, before logging in or making external writes.
@@ -27,6 +27,10 @@ Main/PR CI does not publish. Only the trusted tag publish job has
 or stdin, never command-line arguments. Temporary registry credentials are
 isolated and cleaned up.
 
+Main pushes run static and Helm checks only, avoiding duplicate image builds.
+PRs and the reusable CI called by a release tag retain both native jobs. The
+release builds each architecture once and publishes those exact tested archives.
+
 The publish step also requires repository secret `DOCKERHUB_TOKEN`, with push
 access as `frisbeecz24` to `frisbeecz24/docker-oscar` and permission to manage
 that repository's information. It is not exposed to CI,
@@ -36,9 +40,12 @@ for Docker Hub prerequisites and one-time Artifact Hub registration.
 ## What is checked
 
 The single local publication gate checks the clean tag commit, canonical
-source bundle, native image/runtime receipts and archives, and both tested
+source bundle, native image/runtime/security receipts and archives, and both tested
 Helm packages. Native receipts must identify the tested bytes, successful
-cleanup and the current `startup-smoke-v1` scope. Downloaded artifact digests
+cleanup and the current `container-functional-v1` scope. A full Trivy report
+must match the same image configuration, architecture and archive; any critical
+or unaccepted high advisory blocks publication. Accepted high IDs in
+`ci.security.ACCEPTED_HIGH` remain visible, not suppressed. Downloaded artifact digests
 are also checked by GitHub's artifact action.
 
 CI success is enforced by GitHub's dependency graph, not collected and
@@ -88,13 +95,14 @@ python3 -m ci.release verify-published \
 
 ## Limits and failure handling
 
-Startup smoke means a running container, loopback HTTP 200 and the same
-unprivileged OSCAR process observed for at least ten seconds on both native
-architectures. It does **not** prove GUI/media usability, imports, persistence
-or a working Kubernetes deployment.
+The functional scope covers startup/HTTP, the same unprivileged OSCAR process
+for ten seconds, synthetic nested upload/download, watchdog replacement and
+synthetic files retained after one container restart. It does **not** prove
+GUI/media usability, real CPAP imports, profile migration/restore or a working
+Kubernetes deployment.
 
-Official binary/source alignment is recorded, not claimed to be reproducible
-or complete proof of redistribution compliance. Preserve corresponding-source
+OSCAR is built from the checksum-locked, unpatched source archive on pinned
+Alpine/Selkies, not installed from Debian binaries. Preserve corresponding-source
 and license material and resolve remaining obligations in `NOTICE.md`.
 OS/base packages are not claimed to be bit-reproducible. Existing Hadolint
 warnings remain visible.

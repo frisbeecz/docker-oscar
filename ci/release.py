@@ -23,6 +23,8 @@ from ci.chart import matrix as chart_matrix
 from ci.chart_registry import publish_chart
 from ci.dockerhub import update_metadata as update_dockerhub_metadata
 from ci.runtime import REQUIRED_CHECKS, TEST_SCOPE, validate_checks, validate_process
+from ci.source_bundle import source_provenance
+from ci.security import ACCEPTED_HIGH, validate_report
 
 REPO = "frisbeecz/docker-oscar"
 REGISTRY = "ghcr.io/frisbeecz"
@@ -107,7 +109,7 @@ def verify(artifacts, commit, *, project=ROOT):
         require(all(build.get(k) == v for k, v in oci.items()), "OCI/build identity mismatch")
         runtime = read_json(folder / f"runtime-{arch}.json")
         check_receipt(runtime, commit, REQUIRED_CHECKS, arch=arch)
-        require(runtime.get("testScope") == TEST_SCOPE, "current startup smoke scope required")
+        require(runtime.get("testScope") == TEST_SCOPE, "current container functional scope required")
         validate_checks(runtime.get("checks"))
         validate_process(runtime.get("process"))
         duration = runtime.get("durationSeconds")
@@ -120,6 +122,19 @@ def verify(artifacts, commit, *, project=ROOT):
         require(all(runtime.get(k) == build[k] for k in ("manifestDigest", "configDigest", "layerDigests")),
                 "runtime tested image identity mismatch")
         require(runtime.get("archiveSha256") == build["archiveSha256"], "runtime archive identity mismatch")
+        security = read_json(folder / f"security-{arch}.json")
+        check_receipt(security, commit, ["noCritical", "acceptedHigh"], arch=arch)
+        require(all(security.get(k) == build[k] for k in (
+            "image", "manifestDigest", "configDigest", "archiveSha256")),
+            "security tested image identity mismatch")
+        require(security.get("scannerVersion") == load_lock(
+            "ci/tools.lock.json", project=project)["trivy"]["version"], "security scanner version mismatch")
+        report = read_json(checked_file(folder / "security-report.json", security.get("reportSha256")))
+        require(report.get("Metadata", {}).get("ImageID") == build["configDigest"]
+                and report["Metadata"].get("ImageConfig", {}).get("architecture") == arch
+                and report["Metadata"].get("ImageConfig", {}).get("os") == "linux",
+                "security report image mismatch")
+        validate_report(report, ACCEPTED_HIGH)
         platforms[arch] = {**oci, "archiveSha256": build["archiveSha256"],
                            "archive": str(archive.resolve())}
     packages = {}
@@ -143,7 +158,7 @@ def verify(artifacts, commit, *, project=ROOT):
     expected_sha = hashlib.sha256(expected).hexdigest()
     verify_sources(source, commit, locked, expected_sha)
     return {"schemaVersion": 1, "gitCommit": commit, "testScope": TEST_SCOPE,
-            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r7",
+            "oscarVersion": "2.1.1", "imageTag": "2.1.1-r8",
             "chartVersion": chart["version"], "platforms": platforms, "charts": packages,
              "sources": {p.name: sha256_file(p) for p in sorted(source.iterdir()) if p.is_file()}}
 
@@ -152,6 +167,12 @@ def verify_sources(source, commit, locked, expected_sha):
     origin = read_json(source / "origin.json")
     check_receipt(origin, commit, ["sourceChecksum", "upstreamLicense", "patchList", "packagingInputs"])
     require(origin.get("oscar") == locked["oscar"], "source origin differs from source lock")
+    if "build" in locked["oscar"]:
+        require(origin.get("sourceProvenance") == source_provenance(locked)
+                and origin.get("checks", {}).get("sourceProvenance") is True
+                and "binaryProvenance" not in origin,
+                "source provenance missing or inconsistent")
+        require(origin.get("base") == locked["base"], "source base differs from exact lock")
     for key in ("sourceArchive", "packaging"):
         entry = origin[key]
         require(Path(entry["path"]).name == entry["path"], "unsafe source archive path")
@@ -252,14 +273,17 @@ def publish(artifacts, commit, registry, *, project=ROOT):
     mutate(["gh", "release", "upload", tag, str(target), "--repo", REPO])
     verify_published(target)
     mutate(["gh", "release", "edit", tag, "--repo", REPO, "--prerelease=false",
-            "--notes", "Native AMD64/ARM64 startup-smoke-v1, Helm render/schema checks and source provenance. "
-            "GUI, import, persistence and Kubernetes deployment are unverified. See release-manifest.json and NOTICE.md."])
+            "--notes", "Source-built Alpine OSCAR; native AMD64/ARM64 container-functional-v1, "
+            "image-bound Trivy reports, Helm checks and source provenance. "
+            "GUI, CPAP import, data migration and Kubernetes deployment are not proven by these checks. "
+            "See release-manifest.json, acceptance documentation and NOTICE.md."])
     return manifest
 
 
 def verify_published(path):
     manifest = read_json(path)
-    require(manifest.get("testScope") == TEST_SCOPE, "current startup smoke publication scope required")
+    require(manifest.get("testScope") in {TEST_SCOPE, "startup-smoke-v1"},
+            "supported publication scope required")
     require(manifest.get("imageRepository") == IMAGE and manifest.get("repository") == REPO,
             "unapproved publication repository")
     validate_tag(manifest["releaseTag"], manifest["chartVersion"])

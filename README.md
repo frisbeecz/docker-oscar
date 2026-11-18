@@ -6,6 +6,7 @@ independent packaging, not an official OSCAR release.
 
 - Browser desktop with Selkies, Wayland and WebSocket/WebCodecs streaming.
 - Linux AMD64 and ARM64 images with software rendering; no GPU required.
+- OSCAR built from checksum-verified source on a pinned Alpine/Selkies base.
 - Docker Compose for local use and a configurable Kubernetes Helm chart.
 - Separate persistent storage for settings, OSCAR profiles and SD-card input.
 
