@@ -23,7 +23,7 @@ FROM ghcr.io/linuxserver/baseimage-selkies:alpine324@sha256:f2820b8df78eb0207858
 ARG VCS_REF=unknown
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 LABEL org.opencontainers.image.title="OSCAR with Selkies" \
-      org.opencontainers.image.version="2.1.1-r8" \
+      org.opencontainers.image.version="2.1.1-r9" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.source="https://github.com/frisbeecz/docker-oscar"

@@ -1,7 +1,7 @@
 # Releasing OSCAR
 
-Project: **frisbeecz/docker-oscar**. Current versions: chart/project **1.1.0**,
-OSCAR **2.1.1**, image **2.1.1-r8**. Existing tags, releases and published
+Project: **frisbeecz/docker-oscar**. Current versions: chart/project **1.1.1**,
+OSCAR **2.1.1**, image **2.1.1-r9**. Existing tags, releases and published
 artifacts must not be overwritten as a recovery mechanism.
 
 ## Flow
