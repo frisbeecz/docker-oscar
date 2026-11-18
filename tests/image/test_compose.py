@@ -38,8 +38,8 @@ def test_quick_start_exposes_only_loopback_without_host_access(render_compose):
     assert set(model["services"]) == {"oscar"}
     service = model["services"]["oscar"]
     assert service["image"] == (
-        "ghcr.io/frisbeecz/docker-oscar:2.1.1-r5@"
-        "sha256:4903f5c456dd1d75f4128acf3e06feab798a54368c7cc3e8f5ffadb665b1640d"
+        "ghcr.io/frisbeecz/docker-oscar:2.1.1-r8@"
+        "sha256:bf0524b3ba21744809c2569a8a770f270c77463d92bbdc96774ba95a87cbfa1a"
     )
     assert len(service["ports"]) == 1
     port = service["ports"][0]

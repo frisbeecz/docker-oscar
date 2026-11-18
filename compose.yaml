@@ -1,7 +1,7 @@
 # Local-only Quick Start. See docs/compose.md before using existing data.
 services:
   oscar:
-    image: ghcr.io/frisbeecz/docker-oscar:2.1.1-r5@sha256:4903f5c456dd1d75f4128acf3e06feab798a54368c7cc3e8f5ffadb665b1640d
+    image: ghcr.io/frisbeecz/docker-oscar:2.1.1-r8@sha256:bf0524b3ba21744809c2569a8a770f270c77463d92bbdc96774ba95a87cbfa1a
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"

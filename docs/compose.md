@@ -57,7 +57,7 @@ and OSCAR then run as unprivileged `abc`. Do not add `user:` to bypass init.
 
 ## Configuration reference
 
-The image is pinned to released **2.1.1-r5**, both by tag and manifest-index
+The image is pinned to released **2.1.1-r8**, both by tag and manifest-index
 digest. There is deliberately no `latest`, forced CPU architecture or build
 step.
 

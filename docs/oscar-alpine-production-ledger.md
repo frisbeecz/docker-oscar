@@ -23,9 +23,9 @@ Spec: `docs/superpowers/specs/2026-11-18-oscar-alpine-production-design.md`
 
 | ID | Owner/session | Status | Attempts |
 |---|---|---|---|
-| AP1 | high primary / current session | DONE local/review, integration next | 2/2 |
-| AP2 | high primary | PENDING main CI success | 0/2 |
-| AP3 | coding-standard when ACTIVE | PENDING AP2 | 0/2 |
+| AP1 | high primary / current session | DONE and pushed main | 2/2 |
+| AP2 | high primary | DONE — release verified | 1/2 |
+| AP3 | coding-standard when ACTIVE | DONE local; integration authorized | 1/2 |
 | AP4 | high primary | PENDING AP2 | 0/2 |
 
 ## Rulings and interface preflight
@@ -149,3 +149,83 @@ outstanding local findings. AP1 is approved for the user-authorized main
 integration. Production native build/scan/runtime/publication remain AP2, not
 inferred from these local results. Preserve the original checkout's six dirty
 documents and all existing published references.
+
+### AP1 integration / AP2 gate
+
+- Commit `613da3aeca05befef96b4ed0402ae854018d98bc` pushed and read back on
+  `origin/main`; all reviewed source identities and the original checkout's six
+  dirty-document hashes matched. No experimental workflow was promoted.
+- An initial local `git add` included the already-staged absent Debian test and
+  rejected that pathspec; no commit/push occurred in that command. Staged only
+  existing approved paths, verified the exact complete staged scope including the
+  pre-staged deletion, then committed successfully. No product changes or test
+  reruns were needed.
+- Main CI: https://github.com/frisbeecz/docker-oscar/actions/runs/44288349299,
+  commit above, attempt 1, in progress. Native image work is deliberately skipped
+  on this main push; await static/source and both Helm jobs before tagging v1.1.0.
+- No release tag, image publication or K3s change yet.
+
+### AP2 attempt 1 — authorized release execution
+
+- Main CI 44288349299 completed successfully on exact reviewed commit
+  `613da3aeca05befef96b4ed0402ae854018d98bc`: static/source and both Helm jobs
+  passed; native job skipped as designed. Native result JSON:
+  `artifacts/alpine-production-review/main-ci.json`.
+- All frozen source hashes remain unchanged. Create only new `v1.1.0` at this
+  commit and publish through the existing tag workflow. No old reference
+  overwrite, manual image rebuild, release deletion or retry. Stop on failed
+  release verification; AP3/AP4 require the final published digest.
+- New `v1.1.0` tag created/pushed/read back at commit above, exit 0.
+  `artifacts/alpine-production-review/tag.json` records the identity.
+  Immediate filtered run discovery returned no entry yet (event registration
+  lag); no tag push or workflow submission was repeated.
+- Release attempt 1:
+  https://github.com/frisbeecz/docker-oscar/actions/runs/44288664171,
+  correct commit confirmed, in progress. Publication/native acceptance pending.
+
+### AP2 completed; AP3 published-input handoff
+
+- Release 44288664171 completed successfully on the reviewed commit, all six
+  jobs PASS. `v1.1.0` is final, not draft/prerelease. Published image
+  `ghcr.io/frisbeecz/docker-oscar:2.1.1-r8` and Docker Hub mirror share index
+  `sha256:bf0524b3ba21744809c2569a8a770f270c77463d92bbdc96774ba95a87cbfa1a`.
+  Chart `1.1.0` OCI digest:
+  `sha256:c64778897995504f6490bcc1d33ee173123f4da5f02cafbf32d484daa8db914d`.
+- Exact run/release/manifest JSON and native scan/runtime receipts retained under
+  `artifacts/alpine-release/`. Native artifact JSON downloaded selectively
+  without re-downloading/rebuilding OCI images. Both architectures passed all
+  eight functional checks and scan policy: 0 critical, 5 accepted high,
+  2 medium, 1 low. These remain real accepted findings, not zero-risk proof.
+- AP2 native verification commands exited 0. Release publication itself verified
+  anonymous GHCR/Docker Hub index equivalence and exact Helm chart download.
+- AP3 writer slot transfers to coding-standard for the previously approved
+  mechanical Compose pin/tests/guide update only. No Docker runtime or new
+  image build, and no K3s writes in this unit.
+
+### AP3 attempt 1 — Compose pin
+
+- Consumed AP2's verified final `v1.1.0`, run `44288664171`, image
+  `ghcr.io/frisbeecz/docker-oscar:2.1.1-r8@sha256:bf0524b3ba21744809c2569a8a770f270c77463d92bbdc96774ba95a87cbfa1a`.
+  Changed only the Compose image pin, matching parser contract and stale guide
+  version; retained all other Compose settings.
+- Commands below used cwd
+  `/Users/ondrejvala/.local/share/opencode/worktree/b0fea1/oscar-alpine-production`.
+  Standalone parser: `/opt/homebrew/bin/docker-compose`, version `5.8.0`;
+  tests execute only its `config` command.
+- RED: `PATH=/Users/ondrejvala/projects/oscar/.venv/tools/bin:$PATH PYTHONDONTWRITEBYTECODE=1 /Users/ondrejvala/projects/oscar/.venv/bin/python -m pytest -p no:cacheprovider tests/image/test_compose.py::test_quick_start_exposes_only_loopback_without_host_access -q`
+  exited 1 with the expected old r5 versus new r8 image assertion.
+- GREEN: `PATH=/Users/ondrejvala/projects/oscar/.venv/tools/bin:$PATH PYTHONDONTWRITEBYTECODE=1 /Users/ondrejvala/projects/oscar/.venv/bin/python -m pytest -p no:cacheprovider tests/image/test_compose.py -q`
+  exited 0, four passed.
+- `PATH=/Users/ondrejvala/projects/oscar/.venv/tools/bin:$PATH /Users/ondrejvala/projects/oscar/.venv/bin/python -m ci.check --static-only --out-dir artifacts/alpine-compose-static`
+  exited 0; six checks passed and pytest reported 448 passed. Evidence:
+  `artifacts/alpine-compose-static/check.json` and `pytest.log`.
+- `graphify update .` exited 0, rebuilt the code graph; it warned that saved
+  community labels no longer match all communities. `git diff --check` exited
+  0; the implementation diff contains only the three intended replacements.
+  No Docker runtime, image pull, publication or K3s operation was performed.
+
+- Primary inspected the actual three-file mechanical diff and native receipt:
+  all six static groups and 448 tests passed (32.64 s). Accepted the worker's
+  remaining concern as the explicit no-local-runtime limitation; AP2 already
+  proves the published image's native functional scope. Integration into main
+  is authorized by the approved plan. No executable change after verification.
