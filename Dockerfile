@@ -37,10 +37,12 @@ RUN apk add --no-cache \
       qt6-qtserialport qt6-qtwayland qt6-qttranslations \
       libx11 zlib glu font-dejavu mesa-dri-gallium
 # Refresh only the three tested packages, not Selkies/pixelflux or system Python.
+# pip is build-only; its vendored copies are removed after dependency checks.
 COPY python-requirements.txt /tmp/oscar-python-requirements.txt
 RUN /lsiopy/bin/python3 -m pip install --no-cache-dir --upgrade --no-deps \
       --only-binary=:all: --require-hashes -r /tmp/oscar-python-requirements.txt \
     && /lsiopy/bin/python3 -m pip check \
+    && /lsiopy/bin/python3 -m pip uninstall --yes pip \
     && rm /tmp/oscar-python-requirements.txt
 COPY --from=build /build/oscar/OSCAR20 /usr/bin/OSCAR20
 COPY --from=build /build/oscar/Html/ /usr/share/OSCAR20/Html/
@@ -50,6 +52,6 @@ COPY LICENSE NOTICE.md versions.lock.json /usr/share/oscar/
 COPY root/ /
 RUN chmod 755 /usr/local/bin/oscar-start /etc/s6-overlay/s6-rc.d/init-oscar-data/run \
     && apk info -v > /usr/share/oscar/runtime-packages.txt \
-    && /lsiopy/bin/python3 -m pip list --format=json > /usr/share/oscar/python-packages.json \
+    && /lsiopy/bin/python3 -c 'import importlib.metadata as m,importlib.util as u,json,sys; assert u.find_spec("pip") is None; json.dump(sorted([{"name": d.metadata["Name"], "version": d.version} for d in m.distributions()], key=lambda d: d["name"].lower()),sys.stdout)' > /usr/share/oscar/python-packages.json \
     && ldd /usr/bin/OSCAR20 > /usr/share/oscar/ldd.txt \
     && ! grep -q 'not found' /usr/share/oscar/ldd.txt

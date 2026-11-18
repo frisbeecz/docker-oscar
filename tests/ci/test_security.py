@@ -33,6 +33,15 @@ def test_known_high_remains_visible_not_ignored():
     assert data == original
 
 
+@pytest.mark.parametrize("identity", [
+    "CVE-2026-114613", "GHSA-6v7p-g79w-8964", "CVE-2025-47273",
+    "CVE-2026-97687", "CVE-2026-97689",
+])
+def test_former_vendored_high_findings_no_longer_have_runtime_exceptions(identity):
+    with pytest.raises(ValueError):
+        security().validate_report(report((identity, "HIGH")), security().ACCEPTED_HIGH)
+
+
 def test_all_eight_accepted_findings_remain_visible():
     data = report(
         ("CVE-2026-114613", "HIGH"), ("GHSA-6v7p-g79w-8964", "HIGH"),
@@ -41,9 +50,11 @@ def test_all_eight_accepted_findings_remain_visible():
         ("CVE-2026-97689", "HIGH"), ("CVE-2026-97688", "MEDIUM"),
     )
     original = copy.deepcopy(data)
-    result = security().validate_report(data, security().ACCEPTED_HIGH)
+    legacy_high = {"CVE-2026-114613", "GHSA-6v7p-g79w-8964", "CVE-2025-47273",
+                   "CVE-2026-97687", "CVE-2026-97689"}
+    result = security().validate_report(data, legacy_high)
     assert result == {"findings": {"HIGH": 5, "MEDIUM": 2, "LOW": 1},
-                      "acceptedHigh": sorted(security().ACCEPTED_HIGH)}
+                      "acceptedHigh": sorted(legacy_high)}
     assert data == original
 
 
@@ -141,13 +152,13 @@ def scanner(tmp_path, monkeypatch):
 
 def test_one_complete_candidate_scan_bound_to_tested_image(scanner):
     module, folder, build, calls, state, _ = scanner
-    state["report"] = report(("CVE-2026-114613", "HIGH"))
+    state["report"] = report(("CVE-other-medium", "MEDIUM"))
     value = module.scan(build["image"], "amd64", folder)
     assert value["exitCode"] == 0 and value["checks"] == {"noCritical": True, "acceptedHigh": True}
     assert all(value[k] == build[k] for k in ("image", "arch", "configDigest", "manifestDigest",
                                             "archiveSha256"))
     assert value["reportSha256"] == sha256_file(folder / "security-report.json")
-    assert value["findings"] == {"HIGH": 1} and value["database"]["UpdatedAt"] == "synthetic-test-db"
+    assert value["findings"] == {"MEDIUM": 1} and value["database"]["UpdatedAt"] == "synthetic-test-db"
     assert sum("--download-db-only" in c for c in calls) == 1
     scans = [c for c in calls if "--scanners" in c]
     assert len(scans) == 1 and scans[0][-1] == build["image"]

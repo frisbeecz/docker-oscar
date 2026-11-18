@@ -43,20 +43,18 @@ architecture. The complete JSON report and DB metadata are retained; the receipt
 binds its SHA256, image configuration, manifest, archive and architecture.
 Publication revalidates the report before any external mutation.
 
-All critical and new/unaccepted high advisory IDs block publication. The user
-accepted these inherited high IDs, without suppressing their report entries:
+All critical and high advisory IDs block publication. New images have no HIGH
+allowlist. The full report still includes medium/low findings and is not filtered.
 
-- `CVE-2026-114613`
-- `GHSA-6v7p-g79w-8964`
-- `CVE-2025-47273`
-- `CVE-2026-97687`
-- `CVE-2026-97689`
-
-The successful exploratory Alpine run still reported five high, two medium and
-one low finding, even though the active Python environment used newer pinned
-packages. Do not call those findings false positives or claim all vulnerable
-copies were removed. Counts change with DB updates and are not equivalent
-coverage across distributions.
+The original Alpine image reported five high, two medium and one low finding
+from old copies vendored inside pip, even though the active runtime packages
+were current. The revised recipe uninstalls pip after its build-time dependency
+checks while retaining Python, Selkies and the pinned runtime packages. Native
+checks require pip to remain absent, as well as the exact runtime package
+versions. This disables `DEV_MODE` and pip-based Docker Mods installation.
+A fresh candidate scan, not this recipe change alone, must prove removal of
+those findings. Counts change with DB updates and are not equivalent coverage
+across distributions.
 
 ### Other release gates
 

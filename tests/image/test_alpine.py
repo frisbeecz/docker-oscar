@@ -1,9 +1,13 @@
 """Production source-build contracts; no image build, daemon or network."""
 import copy
+import ast
+import json
 import os
 import re
+from pathlib import Path
 import shutil
 import subprocess
+import venv
 
 import pytest
 
@@ -77,6 +81,60 @@ def test_alpine_base_and_built_paths(lock):
         assert path in text
     assert "/lsiopy/bin/python3 -m pip check" in text
     assert "--require-hashes" in text and "--only-binary=:all:" in text
+
+
+def test_final_recipe_removes_installer_without_removing_runtime(tmp_path):
+    """Run the actual recipe fragments and child check against a real offline venv."""
+    from ci.runtime_checks import CHECK
+    environment = tmp_path / "runtime"
+    venv.EnvBuilder(with_pip=True).create(environment)
+    python = environment / "bin/python3"
+    site = json.loads(subprocess.check_output([
+        str(python), "-c", "import json,site; print(json.dumps(site.getsitepackages()[0]))"
+    ], text=True))
+    site = Path(site)
+    (site / "retained_runtime.py").write_text("VALUE = 'retained'\n")
+    metadata = site / "retained_runtime-1.0.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: retained-runtime\nVersion: 1.0\n")
+    installed = json.loads(subprocess.check_output([
+        str(python), "-c",
+        "import json,pip; from pathlib import Path; "
+        "print(json.dumps(str(Path(pip.__file__).parent)))"
+    ], text=True))
+    assert (Path(installed) / "_vendor").is_dir()
+    runs = re.findall(r"^RUN (.*?)(?=^\w|\Z)", (ROOT / "Dockerfile").read_text(), re.M | re.S)
+    fragments = [c.strip() for run in runs for c in run.replace("\\\n", "").split("&&")]
+    cleanup = [c for c in fragments if " -m pip uninstall " in c]
+    assert len(cleanup) == 1, "final recipe must uninstall the actual pip distribution"
+    nodes = [n for n in ast.parse(CHECK).body
+             if isinstance(n, ast.FunctionDef) and n.name == "check_python"]
+    assert len(nodes) == 1, "native child must enforce absence of the installer"
+    function = ast.unparse(nodes[0])
+    expected = {"retained-runtime": "1.0"}
+    check = function + "\ncheck_python(" + repr(expected) + ")\n"
+    before = subprocess.run([str(python), "-c", check], capture_output=True, text=True)
+    assert before.returncode != 0 and "pip" in before.stderr
+    subprocess.run(["/bin/sh", "-ec", cleanup[0].replace("/lsiopy/bin/python3", str(python))],
+                   check=True, capture_output=True, text=True)
+    subprocess.run([str(python), "-c", check +
+                    "import retained_runtime; assert retained_runtime.VALUE == 'retained'"],
+                   check=True, capture_output=True, text=True)
+    assert not Path(installed).exists()
+    wrong = subprocess.run([str(python), "-c",
+                            function + "\ncheck_python({'retained-runtime': '0.0'})"],
+                           capture_output=True, text=True)
+    assert wrong.returncode != 0, "required runtime package versions must still be enforced"
+    inventory = [c for c in fragments if "> /usr/share/oscar/python-packages.json" in c]
+    assert len(inventory) == 1
+    target = tmp_path / "inventory.json"
+    subprocess.run(["/bin/sh", "-ec", inventory[0].replace(
+        "/lsiopy/bin/python3", str(python)).replace(
+        "/usr/share/oscar/python-packages.json", str(target))],
+        check=True, capture_output=True, text=True)
+    values = {x["name"].lower(): x["version"] for x in json.loads(target.read_text())}
+    assert values["retained-runtime"] == "1.0" and "pip" not in values
 
 
 def test_legacy_binary_provenance_still_validates(lock):

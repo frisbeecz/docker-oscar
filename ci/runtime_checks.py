@@ -7,7 +7,6 @@ from ci import output
 
 CHECK = r'''
 import glob,json,os,signal,sys,time,urllib.request
-from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import quote
 phase,owner,expected_uid,expected_gid,expected_packages=sys.argv[1:]
@@ -15,6 +14,14 @@ expected_uid,expected_gid=int(expected_uid),int(expected_gid)
 
 def check_identity(uid,gid,expected_uid,expected_gid):
  assert uid==expected_uid and gid==expected_gid and uid!=0 and gid!=0,"unprivileged identity mismatch"
+
+def check_python(expected_packages):
+ from importlib.metadata import version
+ from importlib.util import find_spec
+ packages={name:version(name) for name in expected_packages}
+ assert packages==expected_packages,packages
+ assert find_spec("pip") is None,"pip must remain build-only"
+ return packages
 
 def mount_options(path,mountinfo):
  for line in mountinfo.splitlines():
@@ -43,8 +50,7 @@ def check_retained(marker,uploaded,payload):
  assert marker.read_bytes()==payload and uploaded.read_bytes()==payload,"synthetic data was not retained"
 
 check_identity(os.getuid(),os.getgid(),expected_uid,expected_gid)
-packages={name:version(name) for name in json.loads(expected_packages)}
-assert packages==json.loads(expected_packages),packages
+check_python(json.loads(expected_packages))
 assert Path("/etc/alpine-release").read_text().startswith("3.24.")
 assert os.environ["SELKIES_COMMAND_ENABLED"]=="false"
 assert os.environ["SELKIES_UI_SIDEBAR_SHOW_APPS"]=="false"

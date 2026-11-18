@@ -87,6 +87,12 @@ COPYING are copied to the runtime stage. The unchanged launcher resolves
 SQLite, Wayland, Qt translations and software Mesa are installed explicitly.
 The three tested Python upgrades are hash-locked in `python-requirements.txt`
 and installed only in the existing `/lsiopy` environment, followed by `pip check`.
+The installer is then uninstalled, including its vendored libraries. Python,
+Selkies and the pinned runtime packages remain installed. The final Python
+inventory uses `importlib.metadata`, not pip; native functional checks reject
+an importable pip module. `DEV_MODE` and pip-based Docker Mods installation are
+not supported in this runtime image. Install additional dependencies while
+building a derived image, not by modifying the running desktop.
 Alpine dependencies come from distribution repositories; their exact installed
 versions are retained in `/usr/share/oscar/runtime-packages.txt`, not claimed
 as a reproducible package snapshot. A missing/incompatible package is a visible
@@ -142,10 +148,12 @@ This proves neither a usable/decoded GUI nor CPAP import, real profile/database
 migration, restoration or actual Kubernetes routing. See [acceptance](acceptance.md).
 
 Each release architecture also produces one full image-bound Trivy report.
-Any critical or unaccepted high advisory blocks publication. The five accepted
-inherited high IDs remain visible; updates in the active Python environment do
-not prove older scanned copies have disappeared. The original experiment still
-reported five high, two medium and one low finding after those upgrades.
+Any critical or high advisory blocks publication; new images have no accepted
+HIGH exceptions. The original Alpine release reported five high, two medium
+and one low finding despite newer active Python packages. Those older copies
+were traced to pip's vendored libraries. Removing the installer is not, by
+itself, evidence of a clean image: a fresh full candidate scan must establish
+the actual result, and all findings remain visible.
 
 Failures retain JSON and owned container logs with synthetic startup content
 only. Cleanup removes only exact names with matching ownership labels; no prune

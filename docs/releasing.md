@@ -44,9 +44,11 @@ source bundle, native image/runtime/security receipts and archives, and both tes
 Helm packages. Native receipts must identify the tested bytes, successful
 cleanup and the current `container-functional-v1` scope. A full Trivy report
 must match the same image configuration, architecture and archive; any critical
-or unaccepted high advisory blocks publication. Accepted high IDs in
-`ci.security.ACCEPTED_HIGH` remain visible, not suppressed. Downloaded artifact digests
-are also checked by GitHub's artifact action.
+or high advisory blocks publication. `ci.security.ACCEPTED_HIGH` is empty for
+new images; no entries are hidden. Python remains available but pip is removed
+after dependency installation/checks, and native runtime checks enforce that
+separation. Downloaded artifact digests are also checked by GitHub's artifact
+action.
 
 CI success is enforced by GitHub's dependency graph, not collected and
 revalidated via the Actions API. There is no separate evidence job or

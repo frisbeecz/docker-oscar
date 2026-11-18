@@ -9,11 +9,8 @@ from ci import load_lock, output, receipt, run, sha256_file, write_json
 from ci.build_image import require_disposable_runner, require_native, require_native_daemon, verify_import
 from ci.check import download, install_binary
 
-# Explicitly accepted inherited Python findings, not scanner suppression rules.
-ACCEPTED_HIGH = {
-    "CVE-2026-114613", "GHSA-6v7p-g79w-8964", "CVE-2025-47273",
-    "CVE-2026-97687", "CVE-2026-97689",
-}
+# New images must not retain HIGH exceptions for the removed pip-vendored copies.
+ACCEPTED_HIGH = set()
 
 
 def validate_report(report: dict, accepted_high: set) -> dict:
