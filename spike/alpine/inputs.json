@@ -7,6 +7,11 @@
     "commit": "4f14624616d62c6986788417bc5c519c807a7ade"
   },
   "releasedImage": "ghcr.io/frisbeecz/docker-oscar@sha256:386ff28089d399c1305f42cb811a53ce9c9ac18695981888fb13094d348fad0f",
+  "pythonPackages": {
+    "msgpack": "1.2.4",
+    "setuptools": "84.2.1",
+    "urllib3": "2.8.0"
+  },
   "trivy": {
     "version": "0.76.2",
     "sha256": {

@@ -1,0 +1,8 @@
+**
+!LICENSE
+!NOTICE.md
+!root
+!root/**
+!spike
+!spike/alpine
+!spike/alpine/python-requirements.txt

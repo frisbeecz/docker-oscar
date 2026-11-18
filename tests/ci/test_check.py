@@ -27,6 +27,27 @@ def test_file_detection_includes_extensionless_shell_and_excludes_go_templates()
     assert "ci/release.py" in groups["python"]
 
 
+def test_file_detection_excludes_dockerignore_but_keeps_dockerfile_variants(tmp_path):
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    for name, text in {
+        "Dockerfile": "FROM scratch\n",
+        "Dockerfile.debug": "FROM scratch\n",
+        "nested/Dockerfile": "FROM scratch\n",
+        "Dockerfile.dockerignore": "**\n",
+        "Dockerfile.debug.dockerignore": "**\n",
+        "nested/Dockerfile.dockerignore": "**\n",
+        ".dockerignore": "**\n",
+        "check.py": "pass\n",
+        "values.yaml": "enabled: true\n",
+        "check.sh": "#!/bin/sh\nexit 0\n",
+    }.items():
+        file = tmp_path / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text)
+    assert product().discover(tmp_path)["docker"] == [
+        "Dockerfile", "Dockerfile.debug", "nested/Dockerfile"]
+
+
 def test_missing_tool_fails_before_checks(tmp_path):
     with pytest.raises((ValueError, FileNotFoundError)):
         product().tool("actionlint", directory=tmp_path, search_path="")

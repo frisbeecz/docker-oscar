@@ -1,0 +1,4 @@
+# Newest stable versions observed on PyPI 2026-11-18; CPython 3.14 musl wheels.
+msgpack==1.2.4 --hash=sha256:781e856db4f2cb398e4992e2a74305295d3ebf694eec26fa0f4bc766eb9fa0a0 --hash=sha256:f60de6ae13d4d2a12a483f15c5e47cb6fa2731aa32d92fb31178e2017d6574a8
+setuptools==84.2.1 --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2
+urllib3==2.8.0 --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3

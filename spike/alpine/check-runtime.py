@@ -22,18 +22,49 @@ OWNER = uuid.uuid4().hex
 
 CHECK = r'''
 import glob,json,os,signal,sys,time,urllib.request
+from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import quote
-phase,owner=sys.argv[1:]
+phase,owner,expected_packages=sys.argv[1:]
+packages={name:version(name) for name in json.loads(expected_packages)}
+assert packages==json.loads(expected_packages),packages
 assert os.getuid()==1000 and os.getgid()==1000
 assert Path("/etc/alpine-release").read_text().startswith("3.24.")
 assert os.environ["SELKIES_COMMAND_ENABLED"]=="false"
 assert os.environ["SELKIES_UI_SIDEBAR_SHOW_APPS"]=="false"
 assert os.environ["FILE_MANAGER_PATH"]=="/config/Uploads"
 assert glob.glob("/usr/lib/qt6/plugins/sqldrivers/libqsqlite.so")
+
+def mount_options(path,mountinfo):
+ # Linux mountinfo records bind mounts even when parent/child share st_dev.
+ for line in mountinfo.splitlines():
+  fields=line.split()
+  if len(fields)<7: continue
+  target=fields[4]
+  for escaped,decoded in ((r"\040"," "),(r"\011","\t"),(r"\012","\n"),(r"\134","\\")):
+   target=target.replace(escaped,decoded)
+  if target==path: return set(fields[5].split(","))
+ return None
+
 data=Path("/config/Documents/OSCAR20_Data")
-assert os.path.ismount(data) and os.access(data,os.W_OK)
-assert os.path.ismount("/config/SDCARD")
+mountinfo=Path("/proc/self/mountinfo").read_text()
+mounts={p:mount_options(p,mountinfo) for p in
+ ("/config",str(data),"/config/SDCARD")}
+diagnostics={"mounts":{p:sorted(v) if v is not None else None
+ for p,v in mounts.items()},"uid":os.getuid(),"gid":os.getgid(),
+ "writable":os.access(data,os.W_OK),"legacyIsMount":os.path.ismount(data)}
+try:
+ owner_stat=data.stat()
+except OSError as error:
+ diagnostics.update(dataStatError=type(error).__name__,dataStatErrno=error.errno)
+else:
+ diagnostics.update(dataUid=owner_stat.st_uid,dataGid=owner_stat.st_gid,
+  dataMode=oct(owner_stat.st_mode & 0o777))
+print(json.dumps({"storageDiagnostics":diagnostics}),flush=True)
+assert mounts["/config"] is not None and "rw" in mounts["/config"],"config mount missing or read-only"
+assert mounts[str(data)] is not None and "rw" in mounts[str(data)],"data mount missing or read-only"
+assert os.access(data,os.W_OK),"data directory is not writable by abc"
+assert mounts["/config/SDCARD"] is not None and "ro" in mounts["/config/SDCARD"],"SD mount missing or writable"
 marker=data/(".alpine-spike-"+owner)
 relative=".alpine-spike-"+owner+"/nested/card-copy.txt"
 uploaded=Path("/config/Uploads")/relative
@@ -85,6 +116,7 @@ else:
  assert phase=="restarted"
  assert marker.read_bytes()==payload and uploaded.read_bytes()==payload
 print(json.dumps({"phase":phase,"uid":os.getuid(),"alpine":Path("/etc/alpine-release").read_text().strip(),
+ "pythonPackages":packages,
  "singleApplication":True,"http":True,"nestedUpload":True,
  "watchdog" if phase=="initial" else "retainedData":True}))
 '''
@@ -134,11 +166,17 @@ try:
     for phase in ("initial", "restarted"):
         if phase == "restarted":
             run("docker", "restart", "--time", "15", container)
-        output = run("docker", "exec", "-i", container, "s6-setuidgid", "abc", "python3",
-                     "-", phase, OWNER, input=CHECK)
-        results.append(json.loads(output))
-        (OUT / "runtime.json").write_text(json.dumps(results, indent=2) + "\n")
+        expected = json.loads(Path("spike/alpine/inputs.json").read_text())["pythonPackages"]
+        completed = subprocess.run(
+            ["docker", "exec", "-i", container, "s6-setuidgid", "abc", "/lsiopy/bin/python3",
+             "-", phase, OWNER, json.dumps(expected)], input=CHECK, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        output = completed.stdout
+        (OUT / f"runtime-{phase}.log").write_text(output)
         print(output, flush=True)
+        completed.check_returncode()
+        results.append([json.loads(line) for line in output.splitlines()])
+        (OUT / "runtime.json").write_text(json.dumps(results, indent=2) + "\n")
 finally:
     if container:
         label = run("docker", "inspect", "--format", '{{ index .Config.Labels "' + LABEL + '" }}', container)

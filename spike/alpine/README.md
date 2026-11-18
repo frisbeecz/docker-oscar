@@ -31,6 +31,19 @@ separate acceptance work before any production migration. There is no zero-CVE p
 the Alpine Selkies base also contains Docker, OpenSSH and a substantial desktop stack.
 OS package repositories are live, so this is not a bit-reproducible release recipe.
 
+The candidate refreshes the three Python packages flagged in the initial Alpine
+scan: msgpack, setuptools and urllib3. Exact stable versions observed on PyPI
+2026-11-18 are recorded in `inputs.json` and SHA256-locked CPython 3.14 wheels
+in `python-requirements.txt`. They are installed only into Selkies' `/lsiopy`
+environment, followed by `pip check`; native runtime evidence verifies the
+installed versions. This is not a blanket upgrade of every desktop dependency.
+The original pinned Alpine base remains a scan reference.
+
+Storage checks use `/proc/self/mountinfo` to recognize Docker named-volume bind
+mounts on the same filesystem, and separately enforce mount flags and actual
+unprivileged write/read probes. Diagnostics retain ownership and mount details;
+failure never triggers ownership changes or a skipped acceptance check.
+
 Artifacts are diagnostic JSON/logs only; no application image or binary is published.
 OSCAR and dependency licensing/corresponding-source obligations must be addressed for
 any future distribution. This branch must not be merged as a production migration.

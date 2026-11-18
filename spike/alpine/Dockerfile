@@ -33,6 +33,13 @@ RUN apk add --no-cache \
       qt6-qtbase-x11 qt6-qtbase-wayland qt6-qtbase-sqlite \
       qt6-qtserialport qt6-qtwayland qt6-qttranslations \
       libx11 zlib glu font-dejavu mesa-dri-gallium
+# Update only the three packages implicated by the previous scanner report.
+# Do not replace Selkies/pixelflux or install into Alpine's system Python.
+COPY spike/alpine/python-requirements.txt /tmp/oscar-python-requirements.txt
+RUN /lsiopy/bin/python3 -m pip install --no-cache-dir --upgrade --no-deps \
+      --only-binary=:all: --require-hashes -r /tmp/oscar-python-requirements.txt \
+    && /lsiopy/bin/python3 -m pip check \
+    && rm /tmp/oscar-python-requirements.txt
 COPY --from=build /build/oscar/OSCAR20 /usr/bin/OSCAR20
 COPY --from=build /build/oscar/Html/ /usr/share/OSCAR20/Html/
 COPY --from=build /build/oscar/Translations/ /usr/share/OSCAR20/Translations/
@@ -41,5 +48,6 @@ COPY LICENSE NOTICE.md /usr/share/oscar/
 COPY root/ /
 RUN chmod 755 /usr/local/bin/oscar-start /etc/s6-overlay/s6-rc.d/init-oscar-data/run \
     && apk info -v > /usr/share/oscar/runtime-packages.txt \
+    && /lsiopy/bin/python3 -m pip list --format=json > /usr/share/oscar/python-packages.json \
     && ldd /usr/bin/OSCAR20 > /usr/share/oscar/ldd.txt \
     && ! grep -q 'not found' /usr/share/oscar/ldd.txt

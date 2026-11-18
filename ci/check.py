@@ -39,7 +39,8 @@ def discover(project=ROOT):
             groups["python"].append(name)
         if file.suffix in (".yaml", ".yml") and not name.startswith("charts/oscar/templates/"):
             groups["yaml"].append(name)  # Go templates are validated after real Helm rendering.
-        if file.name == "Dockerfile" or file.name.startswith("Dockerfile."):
+        if ((file.name == "Dockerfile" or file.name.startswith("Dockerfile."))
+                and not file.name.endswith(".dockerignore")):
             groups["docker"].append(name)
         with file.open("rb") as stream:
             first = stream.readline(256)
